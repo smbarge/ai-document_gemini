@@ -17,7 +17,7 @@ PROCESSOR_ID = "YOUR_CUSTOM_EXTRACTOR_PROCESSOR_ID"
 
 PROCESSOR_VERSION = "pretrained-foundation-model-v1.5-2025-05-05"
 
-DOCUMENT_PATH = "../docs/casteCertificates/caste_1.jpeg"
+DOCUMENT_PATH = "docs/casteCertificates/casteCertificate_1.jpg"
 
 
 # ============================================================
