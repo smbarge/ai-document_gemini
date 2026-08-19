@@ -1,4 +1,6 @@
 from google.cloud import documentai_v1 as documentai
+from google.api_core.client_options import ClientOptions
+
 import json
 import os
 import time
@@ -9,13 +11,13 @@ import logging
 # CONFIGURATION
 # ============================================================
 
-PROJECT_ID = "YOUR_PROJECT_ID"
+PROJECT_ID = "document-ai-test-506006"
 
-LOCATION = "us"
+LOCATION = "asia-south1"
 
-PROCESSOR_ID = "YOUR_CUSTOM_EXTRACTOR_PROCESSOR_ID"
+PROCESSOR_ID = "ec631cf67f66f191"
 
-PROCESSOR_VERSION = "pretrained-foundation-model-v1.5-2025-05-05"
+PROCESSOR_VERSION = "pretrained-foundation-model-v1.5-2025-08-06"
 
 DOCUMENT_PATH = "docs/casteCertificates/casteCertificate_1.jpg"
 
@@ -38,10 +40,6 @@ logger = logging.getLogger(__name__)
 
 def extract_caste_certificate_data(document_path):
 
-    # ========================================================
-    # TOTAL START TIME
-    # ========================================================
-
     total_start = time.perf_counter()
 
     logger.info("==================================================")
@@ -49,8 +47,42 @@ def extract_caste_certificate_data(document_path):
     logger.info("==================================================")
 
     logger.info(
+        "Project ID: %s",
+        PROJECT_ID
+    )
+
+    logger.info(
+        "Location: %s",
+        LOCATION
+    )
+
+    logger.info(
+        "Processor ID: %s",
+        PROCESSOR_ID
+    )
+
+    logger.info(
+        "Processor Version: %s",
+        PROCESSOR_VERSION
+    )
+
+    logger.info(
         "Document path: %s",
         document_path
+    )
+
+    # ========================================================
+    # CHECK FILE
+    # ========================================================
+
+    if not os.path.isfile(document_path):
+
+        raise FileNotFoundError(
+            f"Document not found: {document_path}"
+        )
+
+    logger.info(
+        "Document file found successfully"
     )
 
     # ========================================================
@@ -63,17 +95,21 @@ def extract_caste_certificate_data(document_path):
 
     start_time = time.perf_counter()
 
-    client = documentai.DocumentProcessorServiceClient()
-
-    elapsed = time.perf_counter() - start_time
+    client = documentai.DocumentProcessorServiceClient(
+        client_options=ClientOptions(
+            api_endpoint=(
+                f"{LOCATION}-documentai.googleapis.com"
+            )
+        )
+    )
 
     logger.info(
         "Document AI client initialized in %.3f seconds",
-        elapsed
+        time.perf_counter() - start_time
     )
 
     # ========================================================
-    # PROCESSOR
+    # PROCESSOR NAME
     # ========================================================
 
     processor_name = (
@@ -84,13 +120,8 @@ def extract_caste_certificate_data(document_path):
     )
 
     logger.info(
-        "Location: %s",
-        LOCATION
-    )
-
-    logger.info(
-        "Processor version: %s",
-        PROCESSOR_VERSION
+        "Processor name: %s",
+        processor_name
     )
 
     # ========================================================
@@ -104,13 +135,12 @@ def extract_caste_certificate_data(document_path):
     start_time = time.perf_counter()
 
     with open(document_path, "rb") as file:
-        document_content = file.read()
 
-    elapsed = time.perf_counter() - start_time
+        document_content = file.read()
 
     logger.info(
         "Document read completed in %.3f seconds",
-        elapsed
+        time.perf_counter() - start_time
     )
 
     logger.info(
@@ -121,12 +151,6 @@ def extract_caste_certificate_data(document_path):
     # ========================================================
     # DETECT MIME TYPE
     # ========================================================
-
-    logger.info(
-        "Detecting MIME type..."
-    )
-
-    start_time = time.perf_counter()
 
     extension = os.path.splitext(
         document_path
@@ -146,25 +170,19 @@ def extract_caste_certificate_data(document_path):
 
     else:
 
-        logger.error(
-            "Unsupported file format: %s",
-            extension
-        )
-
         raise ValueError(
+            f"Unsupported file format: {extension}. "
             "Supported formats: PDF, JPG, JPEG, PNG"
         )
 
-    elapsed = time.perf_counter() - start_time
-
     logger.info(
-        "MIME type detected: %s",
-        mime_type
+        "File extension: %s",
+        extension
     )
 
     logger.info(
-        "MIME detection completed in %.3f seconds",
-        elapsed
+        "MIME type: %s",
+        mime_type
     )
 
     # ========================================================
@@ -172,7 +190,7 @@ def extract_caste_certificate_data(document_path):
     # ========================================================
 
     logger.info(
-        "Creating Document AI request..."
+        "Creating raw document..."
     )
 
     start_time = time.perf_counter()
@@ -182,20 +200,90 @@ def extract_caste_certificate_data(document_path):
         mime_type=mime_type
     )
 
+    logger.info(
+        "Raw document created in %.3f seconds",
+        time.perf_counter() - start_time
+    )
+
+    # ========================================================
+    # FIELD DEFINITIONS
+    # ========================================================
+
+    field_names = [
+        "candidate_name",
+        "father_name",
+        "mother_name",
+        "certificate_number",
+        "caste",
+        "category",
+        "sub_caste",
+        "district",
+        "state",
+        "issue_date",
+        "issuing_authority"
+    ]
+
+    logger.info(
+        "Fields requested: %s",
+        ", ".join(field_names)
+    )
+
+    # ========================================================
+    # CREATE SCHEMA PROPERTIES
+    # ========================================================
+
+    properties = []
+
+    for field_name in field_names:
+
+        properties.append(
+            documentai.DocumentSchema.EntityType.Property(
+                name=field_name,
+                value_type="string"
+            )
+        )
+
+    # ========================================================
+    # CREATE SCHEMA OVERRIDE
+    # ========================================================
+
+    schema_override = documentai.DocumentSchema(
+        display_name="Caste Certificate Schema",
+        description="Caste certificate extraction schema",
+        entity_types=[
+            documentai.DocumentSchema.EntityType(
+                name="custom_extraction_document_type",
+                base_types=["document"],
+                properties=properties
+            )
+        ]
+    )
+
+    logger.info(
+        "Schema override created with %d fields",
+        len(properties)
+    )
+
+    # ========================================================
+    # PROCESS OPTIONS
+    # ========================================================
+
+    process_options = documentai.ProcessOptions(
+        schema_override=schema_override
+    )
+
     # ========================================================
     # CREATE REQUEST
     # ========================================================
 
     request = documentai.ProcessRequest(
         name=processor_name,
-        raw_document=raw_document
+        raw_document=raw_document,
+        process_options=process_options
     )
 
-    elapsed = time.perf_counter() - start_time
-
     logger.info(
-        "Request created in %.3f seconds",
-        elapsed
+        "Document AI request created successfully"
     )
 
     # ========================================================
@@ -217,7 +305,9 @@ def extract_caste_certificate_data(document_path):
         request=request
     )
 
-    processing_time = time.perf_counter() - start_time
+    processing_time = (
+        time.perf_counter() - start_time
+    )
 
     logger.info(
         "Document AI processing completed in %.3f seconds",
@@ -238,15 +328,13 @@ def extract_caste_certificate_data(document_path):
 
     ocr_text = document.text
 
-    elapsed = time.perf_counter() - start_time
-
     logger.info(
         "OCR text read in %.3f seconds",
-        elapsed
+        time.perf_counter() - start_time
     )
 
     logger.info(
-        "OCR characters: %d",
+        "OCR characters extracted: %d",
         len(ocr_text)
     )
 
@@ -261,14 +349,8 @@ def extract_caste_certificate_data(document_path):
     )
 
     # ========================================================
-    # FINAL JSON STRUCTURE
+    # INITIAL RESULT
     # ========================================================
-
-    logger.info(
-        "Creating final JSON structure..."
-    )
-
-    start_time = time.perf_counter()
 
     extracted_data = {
         "candidate_name": None,
@@ -283,13 +365,6 @@ def extract_caste_certificate_data(document_path):
         "issue_date": None,
         "issuing_authority": None
     }
-
-    elapsed = time.perf_counter() - start_time
-
-    logger.info(
-        "JSON structure created in %.3f seconds",
-        elapsed
-    )
 
     # ========================================================
     # EXTRACT CUSTOM EXTRACTOR ENTITIES
@@ -314,10 +389,6 @@ def extract_caste_certificate_data(document_path):
 
         confidence = entity.confidence
 
-        # ----------------------------------------------------
-        # LOG ENTITY + CONFIDENCE
-        # ----------------------------------------------------
-
         logger.info(
             "Entity: %s | Value: %s | Confidence: %.4f",
             field_name,
@@ -325,17 +396,23 @@ def extract_caste_certificate_data(document_path):
             confidence
         )
 
-        # ----------------------------------------------------
-        # SAVE ONLY VALUE
-        # ----------------------------------------------------
-
         if field_name in extracted_data:
 
-            extracted_data[field_name] = value.strip()
+            if value:
+
+                extracted_data[field_name] = (
+                    value.strip()
+                )
 
             matched_entities += 1
 
-    entity_time = time.perf_counter() - start_time
+    entity_time = (
+        time.perf_counter() - start_time
+    )
+
+    # ========================================================
+    # ENTITY STATISTICS
+    # ========================================================
 
     logger.info(
         "Entity extraction completed in %.3f seconds",
@@ -348,15 +425,18 @@ def extract_caste_certificate_data(document_path):
     )
 
     logger.info(
-        "Required entities matched: %d",
-        matched_entities
+        "Required entities matched: %d / %d",
+        matched_entities,
+        len(extracted_data)
     )
 
     # ========================================================
     # TOTAL PROCESSING TIME
     # ========================================================
 
-    total_time = time.perf_counter() - total_start
+    total_time = (
+        time.perf_counter() - total_start
+    )
 
     logger.info("==================================================")
     logger.info(
@@ -394,26 +474,33 @@ if __name__ == "__main__":
         "Starting caste certificate extraction application..."
     )
 
-    data = extract_caste_certificate_data(
-        DOCUMENT_PATH
-    )
+    try:
 
-    # ========================================================
-    # FINAL RESULT
-    # ========================================================
-
-    print(
-        "\n================ RESULT ================\n"
-    )
-
-    print(
-        json.dumps(
-            data,
-            indent=4,
-            ensure_ascii=False
+        data = extract_caste_certificate_data(
+            DOCUMENT_PATH
         )
-    )
 
-    print(
-        "\n===========================================\n"
-    )
+        print(
+            "\n================ FINAL RESULT ================\n"
+        )
+
+        print(
+            json.dumps(
+                data,
+                indent=4,
+                ensure_ascii=False
+            )
+        )
+
+        print(
+            "\n================================================\n"
+        )
+
+    except Exception as error:
+
+        logger.exception(
+            "Caste certificate extraction failed: %s",
+            error
+        )
+
+        raise
