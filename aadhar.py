@@ -17,7 +17,7 @@ PROCESSOR_ID = "YOUR_CUSTOM_EXTRACTOR_PROCESSOR_ID"
 
 PROCESSOR_VERSION = "pretrained-foundation-model-v1.5-2025-05-05"
 
-DOCUMENT_PATH = "../docs/aadhaar/aadhaar_1.jpeg"
+DOCUMENT_PATH = "docs/aadharCards/Adhar1.png"
 
 
 # ============================================================
