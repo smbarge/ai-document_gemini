@@ -17,7 +17,7 @@ PROCESSOR_ID = "YOUR_CUSTOM_EXTRACTOR_PROCESSOR_ID"
 
 PROCESSOR_VERSION = "pretrained-foundation-model-v1.5-2025-05-05"
 
-DOCUMENT_PATH = "../docs/panCards/pan_1.jpeg"
+DOCUMENT_PATH = "../docs/domicileCertificates/domicile_1.jpeg"
 
 
 # ============================================================
@@ -33,10 +33,10 @@ logger = logging.getLogger(__name__)
 
 
 # ============================================================
-# EXTRACT PAN DATA
+# EXTRACT DOMICILE DATA
 # ============================================================
 
-def extract_pan_data(document_path):
+def extract_domicile_data(document_path):
 
     # ========================================================
     # TOTAL START TIME
@@ -45,7 +45,7 @@ def extract_pan_data(document_path):
     total_start = time.perf_counter()
 
     logger.info("==================================================")
-    logger.info("STARTING PAN CARD EXTRACTION")
+    logger.info("STARTING DOMICILE CERTIFICATE EXTRACTION")
     logger.info("==================================================")
 
     logger.info(
@@ -98,7 +98,7 @@ def extract_pan_data(document_path):
     # ========================================================
 
     logger.info(
-        "Reading PAN document..."
+        "Reading domicile certificate..."
     )
 
     start_time = time.perf_counter()
@@ -204,7 +204,7 @@ def extract_pan_data(document_path):
 
     logger.info("==================================================")
     logger.info(
-        "Sending PAN document to Document AI..."
+        "Sending domicile certificate to Document AI..."
     )
     logger.info(
         "Custom Extractor processing started"
@@ -271,10 +271,14 @@ def extract_pan_data(document_path):
     start_time = time.perf_counter()
 
     extracted_data = {
-        "pan_number": None,
         "name": None,
-        "father_name": None,
-        "date_of_birth": None
+        "certificate_number": None,
+        "date_of_birth": None,
+        "address": None,
+        "district": None,
+        "state": None,
+        "issue_date": None,
+        "issuing_authority": None
     }
 
     elapsed = time.perf_counter() - start_time
@@ -353,7 +357,7 @@ def extract_pan_data(document_path):
 
     logger.info("==================================================")
     logger.info(
-        "PAN CARD EXTRACTION COMPLETED"
+        "DOMICILE CERTIFICATE EXTRACTION COMPLETED"
     )
     logger.info("==================================================")
 
@@ -384,10 +388,10 @@ def extract_pan_data(document_path):
 if __name__ == "__main__":
 
     logger.info(
-        "Starting PAN extraction application..."
+        "Starting domicile certificate extraction application..."
     )
 
-    data = extract_pan_data(
+    data = extract_domicile_data(
         DOCUMENT_PATH
     )
 
