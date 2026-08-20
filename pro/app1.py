@@ -38,7 +38,7 @@ GEMINI_MODEL = "gemini-2.5-pro"
 # FILE CONFIGURATION
 # ============================================================
 
-DOCUMENT_PATH = "docs/10thMarkSheets/SSC_1.jpeg"
+DOCUMENT_PATH = "../docs/10thMarkSheets/SSC_1.jpeg"
 
 OUTPUT_FILE = "output/marksheet_result.json"
 
