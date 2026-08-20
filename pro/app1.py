@@ -9,12 +9,16 @@ from google.cloud import documentai_v1 as documentai
 from google import genai
 from google.genai.types import HttpOptions
 
+#  No change
+
 
 # ============================================================
 # GOOGLE CLOUD CONFIGURATION
 # ============================================================
 
 PROJECT_ID = "document-ai-test-506006"
+# PROJECT_ID = "document-ai-test-506006"
+
 
 LOCATION = "asia-south1"
 
