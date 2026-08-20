@@ -1,23 +1,26 @@
 from google.cloud import documentai_v1 as documentai
+from google.api_core.client_options import ClientOptions
+
 import json
 import os
 import time
 import logging
+import re
 
 
 # ============================================================
 # CONFIGURATION
 # ============================================================
 
-PROJECT_ID = "YOUR_PROJECT_ID"
+PROJECT_ID = "document-ai-test-506006"
 
-LOCATION = "us"
+LOCATION = "asia-south1"
 
-PROCESSOR_ID = "YOUR_CUSTOM_EXTRACTOR_PROCESSOR_ID"
+PROCESSOR_ID = "ec631cf67f66f191"
 
-PROCESSOR_VERSION = "pretrained-foundation-model-v1.5-2025-05-05"
+PROCESSOR_VERSION = "pretrained-foundation-model-v1.5-2025-08-06"
 
-DOCUMENT_PATH = "docs/10thMarkSheets/ssc_1.jpeg"
+DOCUMENT_PATH = "docs/10thMarkSheets/SSC_1.jpeg"
 
 
 # ============================================================
@@ -33,14 +36,71 @@ logger = logging.getLogger(__name__)
 
 
 # ============================================================
-# PROCESS DOCUMENT
+# NORMALIZE PASSING YEAR
 # ============================================================
 
-def extract_marksheet_data(document_path):
+def normalize_passing_year(value):
 
-    # --------------------------------------------------------
-    # TOTAL START TIME
-    # --------------------------------------------------------
+    """
+    Convert values such as:
+
+        14      -> 2014
+        2014    -> 2014
+        23      -> 2023
+
+    """
+
+    if not value:
+        return None
+
+    value = str(value).strip()
+
+    # Already a four-digit year
+    if re.fullmatch(r"(19|20)\d{2}", value):
+        return value
+
+    # Two-digit year
+    if re.fullmatch(r"\d{2}", value):
+
+        year = int(value)
+
+        if year <= 30:
+            return str(2000 + year)
+
+        return str(1900 + year)
+
+    # Search for four-digit year
+    match = re.search(
+        r"(19|20)\d{2}",
+        value
+    )
+
+    if match:
+        return match.group(0)
+
+    # Search for two-digit year
+    match = re.search(
+        r"\b(\d{2})\b",
+        value
+    )
+
+    if match:
+
+        year = int(match.group(1))
+
+        if year <= 30:
+            return str(2000 + year)
+
+        return str(1900 + year)
+
+    return value
+
+
+# ============================================================
+# EXTRACT 10TH MARKSHEET DATA
+# ============================================================
+
+def extract_10th_marksheet_data(document_path):
 
     total_start = time.perf_counter()
 
@@ -49,8 +109,42 @@ def extract_marksheet_data(document_path):
     logger.info("==================================================")
 
     logger.info(
+        "Project ID: %s",
+        PROJECT_ID
+    )
+
+    logger.info(
+        "Location: %s",
+        LOCATION
+    )
+
+    logger.info(
+        "Processor ID: %s",
+        PROCESSOR_ID
+    )
+
+    logger.info(
+        "Processor Version: %s",
+        PROCESSOR_VERSION
+    )
+
+    logger.info(
         "Document path: %s",
         document_path
+    )
+
+    # ========================================================
+    # CHECK FILE
+    # ========================================================
+
+    if not os.path.isfile(document_path):
+
+        raise FileNotFoundError(
+            f"Document not found: {document_path}"
+        )
+
+    logger.info(
+        "Document file found successfully"
     )
 
     # ========================================================
@@ -63,17 +157,21 @@ def extract_marksheet_data(document_path):
 
     start_time = time.perf_counter()
 
-    client = documentai.DocumentProcessorServiceClient()
-
-    elapsed = time.perf_counter() - start_time
+    client = documentai.DocumentProcessorServiceClient(
+        client_options=ClientOptions(
+            api_endpoint=(
+                f"{LOCATION}-documentai.googleapis.com"
+            )
+        )
+    )
 
     logger.info(
         "Document AI client initialized in %.3f seconds",
-        elapsed
+        time.perf_counter() - start_time
     )
 
     # ========================================================
-    # PROCESSOR
+    # PROCESSOR NAME
     # ========================================================
 
     processor_name = (
@@ -84,13 +182,8 @@ def extract_marksheet_data(document_path):
     )
 
     logger.info(
-        "Location: %s",
-        LOCATION
-    )
-
-    logger.info(
-        "Processor version: %s",
-        PROCESSOR_VERSION
+        "Processor name: %s",
+        processor_name
     )
 
     # ========================================================
@@ -104,13 +197,12 @@ def extract_marksheet_data(document_path):
     start_time = time.perf_counter()
 
     with open(document_path, "rb") as file:
-        document_content = file.read()
 
-    elapsed = time.perf_counter() - start_time
+        document_content = file.read()
 
     logger.info(
         "Document read completed in %.3f seconds",
-        elapsed
+        time.perf_counter() - start_time
     )
 
     logger.info(
@@ -121,12 +213,6 @@ def extract_marksheet_data(document_path):
     # ========================================================
     # DETECT MIME TYPE
     # ========================================================
-
-    logger.info(
-        "Detecting MIME type..."
-    )
-
-    start_time = time.perf_counter()
 
     extension = os.path.splitext(
         document_path
@@ -146,16 +232,10 @@ def extract_marksheet_data(document_path):
 
     else:
 
-        logger.error(
-            "Unsupported file format: %s",
-            extension
-        )
-
         raise ValueError(
+            f"Unsupported file format: {extension}. "
             "Supported formats: PDF, JPG, JPEG, PNG"
         )
-
-    elapsed = time.perf_counter() - start_time
 
     logger.info(
         "File extension: %s",
@@ -167,17 +247,12 @@ def extract_marksheet_data(document_path):
         mime_type
     )
 
-    logger.info(
-        "MIME detection completed in %.3f seconds",
-        elapsed
-    )
-
     # ========================================================
     # CREATE RAW DOCUMENT
     # ========================================================
 
     logger.info(
-        "Creating Document AI request..."
+        "Creating raw document..."
     )
 
     start_time = time.perf_counter()
@@ -187,20 +262,87 @@ def extract_marksheet_data(document_path):
         mime_type=mime_type
     )
 
+    logger.info(
+        "Raw document created in %.3f seconds",
+        time.perf_counter() - start_time
+    )
+
+    # ========================================================
+    # FIELD DEFINITIONS
+    # ========================================================
+
+    field_names = [
+        "candidate_name",
+        "seat_number",
+        "mother_name",
+        "percentage",
+        "passing_year",
+        "total_marks",
+        "obtained_marks",
+        "stream"
+    ]
+
+    logger.info(
+        "Fields requested: %s",
+        ", ".join(field_names)
+    )
+
+    # ========================================================
+    # CREATE SCHEMA PROPERTIES
+    # ========================================================
+
+    properties = []
+
+    for field_name in field_names:
+
+        properties.append(
+            documentai.DocumentSchema.EntityType.Property(
+                name=field_name,
+                value_type="string"
+            )
+        )
+
+    # ========================================================
+    # CREATE SCHEMA OVERRIDE
+    # ========================================================
+
+    schema_override = documentai.DocumentSchema(
+        display_name="SSC Schema",
+        description="10th SSC Marksheet extraction schema",
+        entity_types=[
+            documentai.DocumentSchema.EntityType(
+                name="custom_extraction_document_type",
+                base_types=["document"],
+                properties=properties
+            )
+        ]
+    )
+
+    logger.info(
+        "Schema override created with %d fields",
+        len(properties)
+    )
+
+    # ========================================================
+    # PROCESS OPTIONS
+    # ========================================================
+
+    process_options = documentai.ProcessOptions(
+        schema_override=schema_override
+    )
+
     # ========================================================
     # CREATE REQUEST
     # ========================================================
 
     request = documentai.ProcessRequest(
         name=processor_name,
-        raw_document=raw_document
+        raw_document=raw_document,
+        process_options=process_options
     )
 
-    elapsed = time.perf_counter() - start_time
-
     logger.info(
-        "Request created in %.3f seconds",
-        elapsed
+        "Document AI request created successfully"
     )
 
     # ========================================================
@@ -222,7 +364,9 @@ def extract_marksheet_data(document_path):
         request=request
     )
 
-    processing_time = time.perf_counter() - start_time
+    processing_time = (
+        time.perf_counter() - start_time
+    )
 
     logger.info(
         "Document AI processing completed in %.3f seconds",
@@ -243,11 +387,9 @@ def extract_marksheet_data(document_path):
 
     ocr_text = document.text
 
-    elapsed = time.perf_counter() - start_time
-
     logger.info(
         "OCR text read in %.3f seconds",
-        elapsed
+        time.perf_counter() - start_time
     )
 
     logger.info(
@@ -266,6 +408,21 @@ def extract_marksheet_data(document_path):
     )
 
     # ========================================================
+    # INITIAL RESULT
+    # ========================================================
+
+    extracted_data = {
+        "candidate_name": None,
+        "seat_number": None,
+        "mother_name": None,
+        "percentage": None,
+        "passing_year": None,
+        "total_marks": None,
+        "obtained_marks": None,
+        "stream": None
+    }
+
+    # ========================================================
     # EXTRACT ENTITIES
     # ========================================================
 
@@ -275,9 +432,8 @@ def extract_marksheet_data(document_path):
 
     start_time = time.perf_counter()
 
-    extracted_data = {}
-
     total_entities = 0
+    matched_entities = 0
 
     for entity in document.entities:
 
@@ -289,11 +445,6 @@ def extract_marksheet_data(document_path):
 
         confidence = entity.confidence
 
-        extracted_data[field_name] = {
-            "value": value,
-            "confidence": confidence
-        }
-
         logger.info(
             "Entity: %s | Value: %s | Confidence: %.4f",
             field_name,
@@ -301,7 +452,45 @@ def extract_marksheet_data(document_path):
             confidence
         )
 
-    entity_time = time.perf_counter() - start_time
+        if field_name in extracted_data:
+
+            if value:
+
+                extracted_data[field_name] = (
+                    value.strip()
+                )
+
+            matched_entities += 1
+
+    entity_time = (
+        time.perf_counter() - start_time
+    )
+
+    # ========================================================
+    # NORMALIZE PASSING YEAR
+    # ========================================================
+
+    if extracted_data["passing_year"]:
+
+        original_year = extracted_data[
+            "passing_year"
+        ]
+
+        extracted_data["passing_year"] = (
+            normalize_passing_year(
+                original_year
+            )
+        )
+
+        logger.info(
+            "Passing year normalized: %s -> %s",
+            original_year,
+            extracted_data["passing_year"]
+        )
+
+    # ========================================================
+    # ENTITY STATISTICS
+    # ========================================================
 
     logger.info(
         "Entity extraction completed in %.3f seconds",
@@ -309,15 +498,23 @@ def extract_marksheet_data(document_path):
     )
 
     logger.info(
-        "Total entities extracted: %d",
+        "Total entities detected: %d",
         total_entities
     )
 
+    logger.info(
+        "Required entities matched: %d / %d",
+        matched_entities,
+        len(extracted_data)
+    )
+
     # ========================================================
-    # TOTAL PROCESSING TIME
+    # TOTAL TIME
     # ========================================================
 
-    total_time = time.perf_counter() - total_start
+    total_time = (
+        time.perf_counter() - total_start
+    )
 
     logger.info("==================================================")
     logger.info(
@@ -355,22 +552,33 @@ if __name__ == "__main__":
         "Starting 10th marksheet extraction application..."
     )
 
-    data = extract_marksheet_data(
-        DOCUMENT_PATH
-    )
+    try:
 
-    print(
-        "\n================ RESULT ================\n"
-    )
-
-    print(
-        json.dumps(
-            data,
-            indent=4,
-            ensure_ascii=False
+        data = extract_10th_marksheet_data(
+            DOCUMENT_PATH
         )
-    )
 
-    print(
-        "\n===========================================\n"
-    )
+        print(
+            "\n================ FINAL RESULT ================\n"
+        )
+
+        print(
+            json.dumps(
+                data,
+                indent=4,
+                ensure_ascii=False
+            )
+        )
+
+        print(
+            "\n================================================\n"
+        )
+
+    except Exception as error:
+
+        logger.exception(
+            "10th marksheet extraction failed: %s",
+            error
+        )
+
+        raise

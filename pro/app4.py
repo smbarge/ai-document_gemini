@@ -60,7 +60,7 @@ GEMINI_MODEL = os.getenv(
 # FILE CONFIGURATION
 # ============================================================
 
-INPUT_FILE = "/docs/panCards/pan1.png"
+INPUT_FILE = "docs/panCards/pan1.png"
 
 OUTPUT_FILE = "output/pan_result.json"
 
