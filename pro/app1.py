@@ -58,7 +58,7 @@ GEMINI_MODEL = os.getenv(
 # FILE CONFIGURATION
 # ============================================================
 
-INPUT_FILE = "docs/10thMarkSheets/ssc_1.jpeg"
+INPUT_FILE = "docs/10thMarkSheets/SSC_1.jpeg"
 
 OUTPUT_FILE = "output/marksheet_result.json"
 
