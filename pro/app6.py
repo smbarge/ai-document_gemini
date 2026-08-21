@@ -1,16 +1,41 @@
-import os
 import json
-import time
 import logging
-from pathlib import Path
-
-from dotenv import load_dotenv
+import os
+import time
 
 from google.api_core.client_options import ClientOptions
 from google.cloud import documentai_v1 as documentai
-
 from google import genai
 from google.genai.types import HttpOptions
+
+
+# ============================================================
+# GOOGLE CLOUD CONFIGURATION
+# ============================================================
+
+PROJECT_ID = "document-ai-test-506006"
+
+LOCATION = "asia-south1"
+
+PROCESSOR_ID = "ec631cf67f66f191"
+
+PROCESSOR_VERSION = "pretrained-foundation-model-v1.5-2025-08-06"
+
+
+# ============================================================
+# GEMINI CONFIGURATION
+# ============================================================
+
+GEMINI_MODEL = "gemini-2.5-pro"
+
+
+# ============================================================
+# FILE CONFIGURATION
+# ============================================================
+
+INPUT_FILE = "../docs/non-creamyLayerCertificates/non-creamyLayer_2.jpg"
+
+OUTPUT_FILE = "output/non_creamy_layer_result.json"
 
 
 # ============================================================
@@ -27,549 +52,218 @@ logger = logging.getLogger(__name__)
 
 
 # ============================================================
-# LOAD ENVIRONMENT VARIABLES
-# ============================================================
-
-load_dotenv()
-
-PROJECT_ID = os.getenv(
-    "GOOGLE_CLOUD_PROJECT"
-)
-
-LOCATION = os.getenv(
-    "GOOGLE_CLOUD_LOCATION",
-    "us"
-)
-
-PROCESSOR_ID = os.getenv(
-    "DOCUMENT_AI_PROCESSOR_ID"
-)
-
-PROCESSOR_VERSION = os.getenv(
-    "DOCUMENT_AI_PROCESSOR_VERSION",
-    "stable"
-)
-
-GEMINI_MODEL = os.getenv(
-    "GEMINI_MODEL",
-    "gemini-2.5-pro"
-)
-
-
-# ============================================================
-# FILE CONFIGURATION
-# ============================================================
-
-INPUT_FILE = "docs/non-creamyLayerCertificates/non-creamyLayer_2.jpg"
-
-OUTPUT_FILE = "output/ncl_certificate_result.json"
-
-
-# ============================================================
-# MIME TYPE
+# GET MIME TYPE
 # ============================================================
 
 def get_mime_type(file_path):
 
-    extension = Path(
-        file_path
-    ).suffix.lower()
+    extension = os.path.splitext(file_path)[1].lower()
 
-    mime_types = {
-        ".jpg": "image/jpeg",
-        ".jpeg": "image/jpeg",
-        ".png": "image/png",
-        ".pdf": "application/pdf",
-        ".tif": "image/tiff",
-        ".tiff": "image/tiff",
-    }
+    if extension == ".pdf":
+        return "application/pdf"
 
-    return mime_types.get(
-        extension
-    )
+    if extension in [".jpg", ".jpeg"]:
+        return "image/jpeg"
+
+    if extension == ".png":
+        return "image/png"
+
+    if extension in [".tif", ".tiff"]:
+        return "image/tiff"
+
+    return "application/octet-stream"
 
 
 # ============================================================
-# ENTERPRISE DOCUMENT OCR
+# CREATE DOCUMENT AI CLIENT
 # ============================================================
 
-def run_enterprise_ocr(file_path):
-
-    start_time = time.perf_counter()
-
-    logger.info("------------------------------------------")
-    logger.info("ENTERPRISE DOCUMENT OCR STARTED")
-    logger.info("NON-CREAMY LAYER CERTIFICATE")
-    logger.info("------------------------------------------")
+def create_document_ai_client():
 
     logger.info(
-        f"Input file: {file_path}"
-    )
-
-    # --------------------------------------------------------
-    # FILE INFORMATION
-    # --------------------------------------------------------
-
-    file_path_object = Path(
-        file_path
-    )
-
-    if file_path_object.exists():
-
-        file_size_bytes = (
-            file_path_object.stat().st_size
-        )
-
-        file_size_mb = (
-            file_size_bytes
-            / (1024 * 1024)
-        )
-
-        logger.info(
-            f"File size: {file_size_mb:.3f} MB"
-        )
-
-    # --------------------------------------------------------
-    # MIME TYPE
-    # --------------------------------------------------------
-
-    mime_type = get_mime_type(
-        file_path
-    )
-
-    if not mime_type:
-
-        raise ValueError(
-            f"Unsupported file type: {file_path}"
-        )
-
-    logger.info(
-        f"MIME type: {mime_type}"
-    )
-
-    logger.info(
-        f"Processor ID: {PROCESSOR_ID}"
-    )
-
-    # --------------------------------------------------------
-    # DOCUMENT AI CLIENT
-    # --------------------------------------------------------
-
-    client_start_time = (
-        time.perf_counter()
-    )
-
-    logger.info(
-        "Initializing Document AI client..."
+        "Initializing Enterprise Document AI client..."
     )
 
     client_options = ClientOptions(
-        api_endpoint=(
-            f"{LOCATION}-documentai.googleapis.com"
-        )
+        api_endpoint=f"{LOCATION}-documentai.googleapis.com"
     )
 
-    client = (
-        documentai.DocumentProcessorServiceClient(
-            client_options=client_options
-        )
-    )
-
-    client_time = (
-        time.perf_counter()
-        - client_start_time
+    client = documentai.DocumentProcessorServiceClient(
+        client_options=client_options
     )
 
     logger.info(
-        "Document AI client initialized"
+        "Enterprise Document AI client initialized"
     )
 
-    logger.info(
-        f"Client initialization time: "
-        f"{client_time:.3f} seconds"
-    )
+    return client
 
-    # --------------------------------------------------------
-    # PROCESSOR VERSION
-    # --------------------------------------------------------
 
-    processor_version_name = (
+# ============================================================
+# CREATE PROCESSOR NAME
+# ============================================================
+
+def create_processor_name():
+
+    return (
         f"projects/{PROJECT_ID}"
         f"/locations/{LOCATION}"
         f"/processors/{PROCESSOR_ID}"
         f"/processorVersions/{PROCESSOR_VERSION}"
     )
 
-    logger.info(
-        f"Processor version: "
-        f"{PROCESSOR_VERSION}"
-    )
 
-    # --------------------------------------------------------
-    # READ DOCUMENT
-    # --------------------------------------------------------
+# ============================================================
+# ENTERPRISE DOCUMENT AI OCR
+# ============================================================
 
-    read_start_time = (
-        time.perf_counter()
-    )
+def extract_ocr_text(file_path):
 
-    logger.info(
-        "Reading NCL certificate document..."
-    )
+    logger.info("")
+    logger.info("=" * 60)
+    logger.info("ENTERPRISE DOCUMENT AI OCR STARTED")
+    logger.info("=" * 60)
 
-    with open(
-        file_path,
-        "rb"
-    ) as file:
+    client = create_document_ai_client()
 
-        document_content = (
-            file.read()
-        )
-
-    read_time = (
-        time.perf_counter()
-        - read_start_time
-    )
+    processor_name = create_processor_name()
 
     logger.info(
-        "NCL certificate document "
-        "read successfully"
+        "Processor: %s",
+        processor_name
     )
+
+    mime_type = get_mime_type(file_path)
 
     logger.info(
-        f"Document size: "
-        f"{len(document_content)} bytes"
+        "MIME type: %s",
+        mime_type
     )
+
+    with open(file_path, "rb") as file:
+        document_content = file.read()
 
     logger.info(
-        f"Document read time: "
-        f"{read_time:.3f} seconds"
+        "Document size: %.2f MB",
+        len(document_content) / (1024 * 1024)
     )
-
-    # --------------------------------------------------------
-    # RAW DOCUMENT
-    # --------------------------------------------------------
 
     raw_document = documentai.RawDocument(
         content=document_content,
         mime_type=mime_type
     )
 
-    # --------------------------------------------------------
-    # OCR CONFIGURATION
-    # --------------------------------------------------------
-
-    process_options = (
-        documentai.ProcessOptions(
-            ocr_config=documentai.OcrConfig(
-                enable_native_pdf_parsing=True,
-                enable_image_quality_scores=True,
-                enable_symbol=True
-            )
-        )
-    )
-
-    # --------------------------------------------------------
-    # PROCESS REQUEST
-    # --------------------------------------------------------
-
     request = documentai.ProcessRequest(
-        name=processor_version_name,
-        raw_document=raw_document,
-        process_options=process_options
+        name=processor_name,
+        raw_document=raw_document
     )
-
-    # --------------------------------------------------------
-    # ENTERPRISE OCR API
-    # --------------------------------------------------------
 
     logger.info(
-        "Sending NCL certificate to "
-        "Enterprise Document OCR..."
+        "Sending Non-Creamy Layer Certificate to Enterprise Document AI..."
     )
 
-    ocr_api_start_time = (
-        time.perf_counter()
-    )
+    start_time = time.perf_counter()
 
     response = client.process_document(
         request=request
     )
 
-    ocr_api_time = (
-        time.perf_counter()
-        - ocr_api_start_time
-    )
+    processing_time = time.perf_counter() - start_time
 
     logger.info(
-        "Enterprise OCR API response received"
+        "Enterprise OCR completed in %.3f seconds",
+        processing_time
     )
+
+    ocr_text = response.document.text
 
     logger.info(
-        f"Enterprise OCR API time: "
-        f"{ocr_api_time:.3f} seconds"
+        "OCR text extracted: %d characters",
+        len(ocr_text)
     )
 
-    document = response.document
+    logger.info("=" * 60)
+    logger.info("ENTERPRISE DOCUMENT AI OCR FINISHED")
+    logger.info("=" * 60)
 
-    # --------------------------------------------------------
-    # OCR INFORMATION
-    # --------------------------------------------------------
-
-    page_count = len(
-        document.pages
-    )
-
-    ocr_text_length = len(
-        document.text
-    )
-
-    logger.info(
-        "OCR completed successfully"
-    )
-
-    logger.info(
-        f"Pages detected: {page_count}"
-    )
-
-    logger.info(
-        f"OCR text length: "
-        f"{ocr_text_length} characters"
-    )
-
-    # --------------------------------------------------------
-    # PRINT OCR TEXT
-    # --------------------------------------------------------
-
-    print(
-        "\n========== OCR TEXT ==========\n"
-    )
-
-    print(
-        document.text
-    )
-
-    # --------------------------------------------------------
-    # TOTAL OCR TIME
-    # --------------------------------------------------------
-
-    total_ocr_time = (
-        time.perf_counter()
-        - start_time
-    )
-
-    logger.info(
-        f"TOTAL ENTERPRISE OCR TIME: "
-        f"{total_ocr_time:.3f} seconds"
-    )
-
-    logger.info("------------------------------------------")
-    logger.info("ENTERPRISE DOCUMENT OCR FINISHED")
-    logger.info("------------------------------------------")
-
-    return document
+    return ocr_text
 
 
 # ============================================================
 # GEMINI 2.5 PRO EXTRACTION
 # ============================================================
 
-def extract_with_gemini(
-    ocr_document
-):
+def extract_with_gemini(ocr_text):
 
-    start_time = time.perf_counter()
-
-    logger.info("------------------------------------------")
+    logger.info("")
+    logger.info("=" * 60)
     logger.info("GEMINI 2.5 PRO EXTRACTION STARTED")
-    logger.info("NON-CREAMY LAYER CERTIFICATE")
-    logger.info("------------------------------------------")
-
-    logger.info(
-        f"Gemini model: {GEMINI_MODEL}"
-    )
-
-    # --------------------------------------------------------
-    # OCR TEXT
-    # --------------------------------------------------------
-
-    ocr_text = (
-        ocr_document.text
-    )
-
-    logger.info(
-        f"OCR text length sent to Gemini: "
-        f"{len(ocr_text)} characters"
-    )
-
-    # --------------------------------------------------------
-    # STRUCTURED RESPONSE SCHEMA
-    # --------------------------------------------------------
-
-    response_schema = {
-
-        "type": "OBJECT",
-
-        "properties": {
-
-            "candidate_name": {
-                "type": "STRING",
-                "description": (
-                    "Full name of the candidate."
-                )
-            },
-
-            "certificate_number": {
-                "type": "STRING",
-                "description": (
-                    "NCL certificate number or "
-                    "certificate identification number."
-                )
-            },
-
-            "issue_date": {
-                "type": "STRING",
-                "description": (
-                    "Date on which the NCL certificate "
-                    "was issued."
-                )
-            },
-
-            "validity_date": {
-                "type": "STRING",
-                "description": (
-                    "Validity or valid-until date "
-                    "mentioned on the certificate."
-                )
-            },
-
-            "caste": {
-                "type": "STRING",
-                "description": (
-                    "Caste or community mentioned "
-                    "on the NCL certificate."
-                )
-            },
-
-            "category": {
-                "type": "STRING",
-                "description": (
-                    "Category such as OBC or other "
-                    "category mentioned."
-                )
-            },
-
-            "father_name": {
-                "type": "STRING",
-                "description": (
-                    "Father's name if present."
-                )
-            },
-
-            "mother_name": {
-                "type": "STRING",
-                "description": (
-                    "Mother's name if present."
-                )
-            },
-
-            "annual_family_income": {
-                "type": "STRING",
-                "description": (
-                    "Annual family income mentioned "
-                    "on the certificate."
-                )
-            },
-
-            "financial_year": {
-                "type": "STRING",
-                "description": (
-                    "Financial year associated with "
-                    "the income or certificate."
-                )
-            },
-
-            "district": {
-                "type": "STRING",
-                "description": (
-                    "District mentioned on the certificate."
-                )
-            },
-
-            "taluka": {
-                "type": "STRING",
-                "description": (
-                    "Taluka or tehsil mentioned."
-                )
-            },
-
-            "issuing_authority": {
-                "type": "STRING",
-                "description": (
-                    "Authority or officer who issued "
-                    "the certificate."
-                )
-            }
-        },
-
-        "required": [
-            "candidate_name",
-            "certificate_number",
-            "issue_date",
-            "validity_date",
-            "caste",
-            "category",
-            "father_name",
-            "mother_name",
-            "annual_family_income",
-            "financial_year",
-            "district",
-            "taluka",
-            "issuing_authority"
-        ]
-    }
-
-    # --------------------------------------------------------
-    # GEMINI PROMPT
-    # --------------------------------------------------------
+    logger.info("=" * 60)
 
     prompt = f"""
-You are an expert document understanding system.
+You are an expert document data extraction system.
 
-The following text was extracted from a
-Non-Creamy Layer certificate using
-Google Cloud Enterprise Document OCR.
+The following OCR text belongs to an Indian Non-Creamy Layer
+Certificate.
 
-Extract the following fields:
+Extract the following information from the certificate:
 
 1. candidate_name
 2. certificate_number
 3. issue_date
-4. validity_date
-5. caste
-6. category
-7. father_name
-8. mother_name
-9. annual_family_income
-10. financial_year
-11. district
-12. taluka
+4. caste
+5. category
+6. father_name
+7. mother_name
+8. annual_income
+9. financial_year
+10. district
+11. taluka
+12. village
 13. issuing_authority
+14. validity
 
-IMPORTANT INSTRUCTIONS:
+Instructions:
 
 - Use only information present in the OCR text.
 - Do not invent information.
-- Do not calculate income.
-- Do not calculate dates.
+- Do not guess missing information.
+- Do not calculate anything.
 - Do not infer missing information.
 - Do not correct spelling.
 - Preserve names exactly as written.
-- Preserve certificate numbers exactly as written.
+- Preserve caste and category exactly as written.
+- Preserve certificate number exactly as written.
 - Preserve dates exactly as written.
 - Preserve income exactly as written.
+- Preserve financial year exactly as written.
+- Preserve location information exactly as written.
+- Preserve issuing authority exactly as written.
+- Preserve validity exactly as written.
 - If a field is not present, return an empty string.
-- Return only the requested structured fields.
+- Return only JSON.
+- Do not return markdown.
+- Do not return explanations.
+- Do not add extra fields.
+
+Return JSON in exactly this structure:
+
+{{
+    "candidate_name": "",
+    "certificate_number": "",
+    "issue_date": "",
+    "caste": "",
+    "category": "",
+    "father_name": "",
+    "mother_name": "",
+    "annual_income": "",
+    "financial_year": "",
+    "district": "",
+    "taluka": "",
+    "village": "",
+    "issuing_authority": "",
+    "validity": ""
+}}
 
 OCR TEXT:
 
@@ -578,16 +272,8 @@ OCR TEXT:
 ----------------------------------------
 """
 
-    # --------------------------------------------------------
-    # GEMINI CLIENT
-    # --------------------------------------------------------
-
     logger.info(
         "Initializing Gemini Vertex AI client..."
-    )
-
-    client_start_time = (
-        time.perf_counter()
     )
 
     client = genai.Client(
@@ -599,187 +285,81 @@ OCR TEXT:
         )
     )
 
-    client_time = (
-        time.perf_counter()
-        - client_start_time
-    )
-
     logger.info(
         "Gemini client initialized"
     )
 
     logger.info(
-        f"Gemini client initialization time: "
-        f"{client_time:.3f} seconds"
-    )
-
-    # --------------------------------------------------------
-    # GEMINI 2.5 PRO API
-    # --------------------------------------------------------
-
-    logger.info(
         "Sending OCR text to Gemini 2.5 Pro..."
     )
 
-    gemini_api_start_time = (
-        time.perf_counter()
-    )
+    start_time = time.perf_counter()
 
     response = client.models.generate_content(
-
         model=GEMINI_MODEL,
-
-        contents=prompt,
-
-        config={
-
-            "response_mime_type":
-                "application/json",
-
-            "response_schema":
-                response_schema,
-
-            "temperature":
-                0
-        }
+        contents=prompt
     )
 
-    gemini_api_time = (
-        time.perf_counter()
-        - gemini_api_start_time
+    processing_time = time.perf_counter() - start_time
+
+    logger.info(
+        "Gemini 2.5 Pro completed in %.3f seconds",
+        processing_time
     )
 
     logger.info(
-        "Gemini API response received"
+        "Gemini response received"
     )
-
-    logger.info(
-        f"Gemini API time: "
-        f"{gemini_api_time:.3f} seconds"
-    )
-
-    # --------------------------------------------------------
-    # GEMINI RESULT
-    # --------------------------------------------------------
-
-    print(
-        "\nGemini extraction completed."
-    )
-
-    print(
-        "\n========== GEMINI RESULT ==========\n"
-    )
-
-    print(
-        response.text
-    )
-
-    # --------------------------------------------------------
-    # TOTAL GEMINI TIME
-    # --------------------------------------------------------
-
-    total_gemini_time = (
-        time.perf_counter()
-        - start_time
-    )
-
-    logger.info(
-        f"TOTAL GEMINI EXTRACTION TIME: "
-        f"{total_gemini_time:.3f} seconds"
-    )
-
-    logger.info("------------------------------------------")
-    logger.info("GEMINI 2.5 PRO EXTRACTION FINISHED")
-    logger.info("------------------------------------------")
 
     return response.text
 
 
 # ============================================================
-# SAVE RESULT
+# SAVE JSON
 # ============================================================
 
-def save_result(
-    result
-):
+def save_json(gemini_result):
 
-    start_time = time.perf_counter()
+    logger.info("")
+    logger.info("=" * 60)
+    logger.info("SAVING JSON RESULT")
+    logger.info("=" * 60)
 
-    logger.info("------------------------------------------")
-    logger.info("SAVING NCL RESULT")
-    logger.info("------------------------------------------")
-
-    output_path = Path(
+    output_directory = os.path.dirname(
         OUTPUT_FILE
     )
 
-    output_path.parent.mkdir(
-        parents=True,
-        exist_ok=True
-    )
+    if output_directory:
+        os.makedirs(
+            output_directory,
+            exist_ok=True
+        )
 
-    logger.info(
-        f"Output file: {output_path}"
-    )
-
-    # --------------------------------------------------------
-    # CONVERT GEMINI JSON RESPONSE
-    # --------------------------------------------------------
-
-    logger.info(
-        "Converting Gemini response to JSON..."
-    )
-
-    parsed_result = json.loads(
-        result
-    )
-
-    # --------------------------------------------------------
-    # WRITE JSON
-    # --------------------------------------------------------
-
-    logger.info(
-        "Writing JSON result..."
+    result = json.loads(
+        gemini_result
     )
 
     with open(
-        output_path,
+        OUTPUT_FILE,
         "w",
         encoding="utf-8"
     ) as file:
 
         json.dump(
-            parsed_result,
+            result,
             file,
             indent=4,
             ensure_ascii=False
         )
 
-    # --------------------------------------------------------
-    # SAVE TIME
-    # --------------------------------------------------------
-
-    save_time = (
-        time.perf_counter()
-        - start_time
+    logger.info(
+        "JSON saved successfully"
     )
 
     logger.info(
-        "NCL RESULT SAVED SUCCESSFULLY"
+        "Output file: %s",
+        os.path.abspath(OUTPUT_FILE)
     )
-
-    logger.info(
-        f"JSON SAVE TIME: "
-        f"{save_time:.3f} seconds"
-    )
-
-    logger.info(
-        f"Output file: {output_path}"
-    )
-
-    logger.info("------------------------------------------")
-    logger.info("RESULT SAVING FINISHED")
-    logger.info("------------------------------------------")
 
 
 # ============================================================
@@ -788,162 +368,141 @@ def save_result(
 
 def main():
 
-    # ========================================================
-    # TOTAL APPLICATION TIMER
-    # ========================================================
-
-    application_start_time = (
-        time.perf_counter()
-    )
+    application_start = time.perf_counter()
 
     logger.info("")
     logger.info("=" * 60)
-    logger.info(
-        "NCL CERTIFICATE DATA EXTRACTION STARTED"
-    )
+    logger.info("NON-CREAMY LAYER CERTIFICATE EXTRACTION STARTED")
     logger.info("=" * 60)
 
     logger.info(
-        f"Project       : {PROJECT_ID}"
+        "Project ID       : %s",
+        PROJECT_ID
     )
 
     logger.info(
-        f"Location      : {LOCATION}"
+        "Location         : %s",
+        LOCATION
     )
 
     logger.info(
-        f"Processor ID  : {PROCESSOR_ID}"
+        "Processor ID     : %s",
+        PROCESSOR_ID
     )
 
     logger.info(
-        f"Processor Ver : {PROCESSOR_VERSION}"
+        "Processor Version: %s",
+        PROCESSOR_VERSION
     )
 
     logger.info(
-        f"Gemini Model  : {GEMINI_MODEL}"
+        "Gemini Model     : %s",
+        GEMINI_MODEL
     )
 
     logger.info(
-        f"Input         : {INPUT_FILE}"
-    )
-
-    logger.info(
-        f"Output        : {OUTPUT_FILE}"
-    )
-
-    # ========================================================
-    # STEP 1
-    # ENTERPRISE DOCUMENT OCR
-    # ========================================================
-
-    step1_start_time = (
-        time.perf_counter()
-    )
-
-    document = run_enterprise_ocr(
+        "Input File       : %s",
         INPUT_FILE
     )
 
-    step1_time = (
-        time.perf_counter()
-        - step1_start_time
-    )
-
     logger.info(
-        f"STEP 1 - Enterprise OCR: "
-        f"{step1_time:.3f} seconds"
+        "Output File      : %s",
+        OUTPUT_FILE
     )
 
     # ========================================================
-    # STEP 2
-    # GEMINI 2.5 PRO
-    # ========================================================
-
-    step2_start_time = (
-        time.perf_counter()
-    )
-
-    result = extract_with_gemini(
-        document
-    )
-
-    step2_time = (
-        time.perf_counter()
-        - step2_start_time
-    )
-
-    logger.info(
-        f"STEP 2 - Gemini 2.5 Pro: "
-        f"{step2_time:.3f} seconds"
-    )
-
-    # ========================================================
-    # STEP 3
-    # SAVE JSON
-    # ========================================================
-
-    step3_start_time = (
-        time.perf_counter()
-    )
-
-    save_result(
-        result
-    )
-
-    step3_time = (
-        time.perf_counter()
-        - step3_start_time
-    )
-
-    logger.info(
-        f"STEP 3 - Save JSON: "
-        f"{step3_time:.3f} seconds"
-    )
-
-    # ========================================================
-    # TOTAL EXECUTION TIME
-    # ========================================================
-
-    total_execution_time = (
-        time.perf_counter()
-        - application_start_time
-    )
-
-    # ========================================================
-    # PERFORMANCE SUMMARY
+    # STEP 1 - ENTERPRISE DOCUMENT AI
     # ========================================================
 
     logger.info("")
     logger.info("=" * 60)
-    logger.info("PERFORMANCE SUMMARY")
+    logger.info("STEP 1 - ENTERPRISE DOCUMENT AI")
     logger.info("=" * 60)
 
-    logger.info(
-        f"Enterprise OCR Time : "
-        f"{step1_time:.3f} seconds"
+    ocr_text = extract_ocr_text(
+        INPUT_FILE
+    )
+
+    print("\n")
+    print("=" * 60)
+    print("OCR TEXT")
+    print("=" * 60)
+    print(ocr_text)
+    print("=" * 60)
+
+    # ========================================================
+    # STEP 2 - GEMINI 2.5 PRO
+    # ========================================================
+
+    logger.info("")
+    logger.info("=" * 60)
+    logger.info("STEP 2 - GEMINI 2.5 PRO")
+    logger.info("=" * 60)
+
+    gemini_result = extract_with_gemini(
+        ocr_text
+    )
+
+    print("\n")
+    print("=" * 60)
+    print("GEMINI RESULT")
+    print("=" * 60)
+    print(gemini_result)
+    print("=" * 60)
+
+    # ========================================================
+    # STEP 3 - SAVE JSON
+    # ========================================================
+
+    logger.info("")
+    logger.info("=" * 60)
+    logger.info("STEP 3 - SAVE JSON")
+    logger.info("=" * 60)
+
+    save_json(
+        gemini_result
+    )
+
+    # ========================================================
+    # FINAL OUTPUT
+    # ========================================================
+
+    print("\n")
+    print("=" * 60)
+    print("FINAL JSON OUTPUT")
+    print("=" * 60)
+
+    print(
+        json.dumps(
+            json.loads(gemini_result),
+            indent=4,
+            ensure_ascii=False
+        )
+    )
+
+    print("=" * 60)
+
+    print("\nJSON FILE:")
+    print(
+        os.path.abspath(
+            OUTPUT_FILE
+        )
+    )
+
+    total_time = (
+        time.perf_counter()
+        - application_start
     )
 
     logger.info(
-        f"Gemini 2.5 Pro Time : "
-        f"{step2_time:.3f} seconds"
-    )
-
-    logger.info(
-        f"JSON Save Time      : "
-        f"{step3_time:.3f} seconds"
-    )
-
-    logger.info(
-        f"TOTAL TIME          : "
-        f"{total_execution_time:.3f} seconds"
+        "TOTAL EXECUTION TIME: %.3f seconds",
+        total_time
     )
 
     logger.info("=" * 60)
-
     logger.info(
-        "NCL CERTIFICATE DATA EXTRACTION FINISHED"
+        "NON-CREAMY LAYER CERTIFICATE EXTRACTION FINISHED"
     )
-
     logger.info("=" * 60)
 
 
@@ -952,15 +511,4 @@ def main():
 # ============================================================
 
 if __name__ == "__main__":
-
-    try:
-
-        main()
-
-    except Exception as error:
-
-        logger.exception(
-            f"APPLICATION FAILED: {error}"
-        )
-
-        raise
+    main()
