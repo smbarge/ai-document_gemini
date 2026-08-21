@@ -1,16 +1,41 @@
-import os
 import json
-import time
 import logging
-from pathlib import Path
-
-from dotenv import load_dotenv
+import os
+import time
 
 from google.api_core.client_options import ClientOptions
 from google.cloud import documentai_v1 as documentai
-
 from google import genai
 from google.genai.types import HttpOptions
+
+
+# ============================================================
+# GOOGLE CLOUD CONFIGURATION
+# ============================================================
+
+PROJECT_ID = "document-ai-test-506006"
+
+LOCATION = "asia-south1"
+
+PROCESSOR_ID = "ec631cf67f66f191"
+
+PROCESSOR_VERSION = "pretrained-foundation-model-v1.5-2025-08-06"
+
+
+# ============================================================
+# GEMINI CONFIGURATION
+# ============================================================
+
+GEMINI_MODEL = "gemini-2.5-pro"
+
+
+# ============================================================
+# FILE CONFIGURATION
+# ============================================================
+
+INPUT_FILE = "docs/domicileCertificates/domicile_2.jpg"
+
+OUTPUT_FILE = "output/domicile_certificate_result.json"
 
 
 # ============================================================
@@ -27,171 +52,59 @@ logger = logging.getLogger(__name__)
 
 
 # ============================================================
-# LOAD ENVIRONMENT VARIABLES
-# ============================================================
-
-load_dotenv()
-
-PROJECT_ID = os.getenv(
-    "GOOGLE_CLOUD_PROJECT"
-)
-
-LOCATION = os.getenv(
-    "GOOGLE_CLOUD_LOCATION",
-    "us"
-)
-
-PROCESSOR_ID = os.getenv(
-    "DOCUMENT_AI_PROCESSOR_ID"
-)
-
-PROCESSOR_VERSION = os.getenv(
-    "DOCUMENT_AI_PROCESSOR_VERSION",
-    "stable"
-)
-
-GEMINI_MODEL = os.getenv(
-    "GEMINI_MODEL",
-    "gemini-2.5-pro"
-)
-
-
-# ============================================================
-# FILE CONFIGURATION
-# ============================================================
-
-INPUT_FILE = "docs/domicileCertificates/domicile_2.jpg"
-
-OUTPUT_FILE = "output/domicile_certificate_result.json"
-
-
-# ============================================================
 # MIME TYPE
 # ============================================================
 
 def get_mime_type(file_path):
 
-    extension = Path(
-        file_path
-    ).suffix.lower()
+    extension = os.path.splitext(file_path)[1].lower()
 
-    mime_types = {
-        ".jpg": "image/jpeg",
-        ".jpeg": "image/jpeg",
-        ".png": "image/png",
-        ".pdf": "application/pdf",
-        ".tif": "image/tiff",
-        ".tiff": "image/tiff",
-    }
+    if extension == ".jpg" or extension == ".jpeg":
+        return "image/jpeg"
 
-    return mime_types.get(
-        extension
-    )
+    if extension == ".png":
+        return "image/png"
+
+    if extension == ".pdf":
+        return "application/pdf"
+
+    if extension == ".tif" or extension == ".tiff":
+        return "image/tiff"
+
+    return "application/octet-stream"
 
 
 # ============================================================
-# ENTERPRISE DOCUMENT OCR
+# ENTERPRISE DOCUMENT AI OCR
 # ============================================================
 
 def run_enterprise_ocr(file_path):
 
-    start_time = time.perf_counter()
-
-    logger.info("------------------------------------------")
-    logger.info("ENTERPRISE DOCUMENT OCR STARTED")
+    logger.info("")
+    logger.info("=" * 60)
+    logger.info("ENTERPRISE DOCUMENT AI OCR STARTED")
     logger.info("DOMICILE CERTIFICATE")
-    logger.info("------------------------------------------")
+    logger.info("=" * 60)
 
     logger.info(
-        f"Input file: {file_path}"
-    )
-
-    # --------------------------------------------------------
-    # FILE INFORMATION
-    # --------------------------------------------------------
-
-    file_path_object = Path(
+        "Input file: %s",
         file_path
     )
 
-    if file_path_object.exists():
-
-        file_size_bytes = (
-            file_path_object.stat().st_size
-        )
-
-        file_size_mb = (
-            file_size_bytes
-            / (1024 * 1024)
-        )
-
-        logger.info(
-            f"File size: {file_size_mb:.3f} MB"
-        )
-
-    # --------------------------------------------------------
-    # MIME TYPE
-    # --------------------------------------------------------
-
-    mime_type = get_mime_type(
-        file_path
-    )
-
-    if not mime_type:
-
-        raise ValueError(
-            f"Unsupported file type: {file_path}"
-        )
+    mime_type = get_mime_type(file_path)
 
     logger.info(
-        f"MIME type: {mime_type}"
-    )
-
-    logger.info(
-        f"Processor ID: {PROCESSOR_ID}"
-    )
-
-    # --------------------------------------------------------
-    # DOCUMENT AI CLIENT
-    # --------------------------------------------------------
-
-    client_start_time = (
-        time.perf_counter()
-    )
-
-    logger.info(
-        "Initializing Document AI client..."
+        "MIME type: %s",
+        mime_type
     )
 
     client_options = ClientOptions(
-        api_endpoint=(
-            f"{LOCATION}-documentai.googleapis.com"
-        )
+        api_endpoint=f"{LOCATION}-documentai.googleapis.com"
     )
 
-    client = (
-        documentai.DocumentProcessorServiceClient(
-            client_options=client_options
-        )
+    client = documentai.DocumentProcessorServiceClient(
+        client_options=client_options
     )
-
-    client_time = (
-        time.perf_counter()
-        - client_start_time
-    )
-
-    logger.info(
-        "Document AI client initialized"
-    )
-
-    logger.info(
-        f"Client initialization time: "
-        f"{client_time:.3f} seconds"
-    )
-
-    # --------------------------------------------------------
-    # PROCESSOR VERSION
-    # --------------------------------------------------------
 
     processor_version_name = (
         f"projects/{PROJECT_ID}"
@@ -201,345 +114,81 @@ def run_enterprise_ocr(file_path):
     )
 
     logger.info(
-        f"Processor version: "
-        f"{PROCESSOR_VERSION}"
+        "Processor: %s",
+        processor_version_name
     )
 
-    # --------------------------------------------------------
-    # READ DOCUMENT
-    # --------------------------------------------------------
+    with open(file_path, "rb") as file:
 
-    read_start_time = (
-        time.perf_counter()
-    )
-
-    logger.info(
-        "Reading domicile certificate document..."
-    )
-
-    with open(
-        file_path,
-        "rb"
-    ) as file:
-
-        document_content = (
-            file.read()
-        )
-
-    read_time = (
-        time.perf_counter()
-        - read_start_time
-    )
-
-    logger.info(
-        "Domicile certificate document "
-        "read successfully"
-    )
-
-    logger.info(
-        f"Document size: "
-        f"{len(document_content)} bytes"
-    )
-
-    logger.info(
-        f"Document read time: "
-        f"{read_time:.3f} seconds"
-    )
-
-    # --------------------------------------------------------
-    # RAW DOCUMENT
-    # --------------------------------------------------------
+        document_content = file.read()
 
     raw_document = documentai.RawDocument(
         content=document_content,
         mime_type=mime_type
     )
 
-    # --------------------------------------------------------
-    # OCR CONFIGURATION
-    # --------------------------------------------------------
-
-    process_options = (
-        documentai.ProcessOptions(
-            ocr_config=documentai.OcrConfig(
-                enable_native_pdf_parsing=True,
-                enable_image_quality_scores=True,
-                enable_symbol=True
-            )
-        )
-    )
-
-    # --------------------------------------------------------
-    # PROCESS REQUEST
-    # --------------------------------------------------------
-
     request = documentai.ProcessRequest(
         name=processor_version_name,
-        raw_document=raw_document,
-        process_options=process_options
+        raw_document=raw_document
     )
-
-    # --------------------------------------------------------
-    # ENTERPRISE OCR API
-    # --------------------------------------------------------
 
     logger.info(
-        "Sending domicile certificate to "
-        "Enterprise Document OCR..."
+        "Sending domicile certificate to Enterprise Document AI..."
     )
 
-    ocr_api_start_time = (
-        time.perf_counter()
-    )
+    start_time = time.perf_counter()
 
     response = client.process_document(
         request=request
     )
 
-    ocr_api_time = (
-        time.perf_counter()
-        - ocr_api_start_time
-    )
-
-    logger.info(
-        "Enterprise OCR API response received"
-    )
-
-    logger.info(
-        f"Enterprise OCR API time: "
-        f"{ocr_api_time:.3f} seconds"
-    )
-
-    document = response.document
-
-    # --------------------------------------------------------
-    # OCR INFORMATION
-    # --------------------------------------------------------
-
-    page_count = len(
-        document.pages
-    )
-
-    ocr_text_length = len(
-        document.text
-    )
-
-    logger.info(
-        "OCR completed successfully"
-    )
-
-    logger.info(
-        f"Pages detected: {page_count}"
-    )
-
-    logger.info(
-        f"OCR text length: "
-        f"{ocr_text_length} characters"
-    )
-
-    # --------------------------------------------------------
-    # PRINT OCR TEXT
-    # --------------------------------------------------------
-
-    print(
-        "\n========== OCR TEXT ==========\n"
-    )
-
-    print(
-        document.text
-    )
-
-    # --------------------------------------------------------
-    # TOTAL OCR TIME
-    # --------------------------------------------------------
-
-    total_ocr_time = (
+    processing_time = (
         time.perf_counter()
         - start_time
     )
 
+    ocr_text = response.document.text
+
     logger.info(
-        f"TOTAL ENTERPRISE OCR TIME: "
-        f"{total_ocr_time:.3f} seconds"
+        "Enterprise OCR completed in %.3f seconds",
+        processing_time
     )
 
-    logger.info("------------------------------------------")
-    logger.info("ENTERPRISE DOCUMENT OCR FINISHED")
-    logger.info("------------------------------------------")
+    logger.info(
+        "OCR text length: %d characters",
+        len(ocr_text)
+    )
 
-    return document
+    print("\n")
+    print("=" * 60)
+    print("OCR TEXT")
+    print("=" * 60)
+    print(ocr_text)
+    print("=" * 60)
+
+    logger.info(
+        "ENTERPRISE DOCUMENT AI OCR FINISHED"
+    )
+
+    return ocr_text
 
 
 # ============================================================
-# GEMINI 2.5 PRO EXTRACTION
+# GEMINI 2.5 PRO
 # ============================================================
 
-def extract_with_gemini(
-    ocr_document
-):
+def extract_with_gemini(ocr_text):
 
-    start_time = time.perf_counter()
-
-    logger.info("------------------------------------------")
+    logger.info("")
+    logger.info("=" * 60)
     logger.info("GEMINI 2.5 PRO EXTRACTION STARTED")
     logger.info("DOMICILE CERTIFICATE")
-    logger.info("------------------------------------------")
-
-    logger.info(
-        f"Gemini model: {GEMINI_MODEL}"
-    )
-
-    # --------------------------------------------------------
-    # OCR TEXT
-    # --------------------------------------------------------
-
-    ocr_text = (
-        ocr_document.text
-    )
-
-    logger.info(
-        f"OCR text length sent to Gemini: "
-        f"{len(ocr_text)} characters"
-    )
-
-    # --------------------------------------------------------
-    # STRUCTURED RESPONSE SCHEMA
-    # --------------------------------------------------------
-
-    response_schema = {
-
-        "type": "OBJECT",
-
-        "properties": {
-
-            "candidate_name": {
-                "type": "STRING",
-                "description": (
-                    "Full name of the person for whom "
-                    "the domicile certificate was issued."
-                )
-            },
-
-            "certificate_number": {
-                "type": "STRING",
-                "description": (
-                    "Domicile certificate number or "
-                    "certificate identification number."
-                )
-            },
-
-            "issue_date": {
-                "type": "STRING",
-                "description": (
-                    "Date on which the domicile "
-                    "certificate was issued."
-                )
-            },
-
-            "date_of_birth": {
-                "type": "STRING",
-                "description": (
-                    "Date of birth of the candidate "
-                    "if present."
-                )
-            },
-
-            "father_name": {
-                "type": "STRING",
-                "description": (
-                    "Father's name if present."
-                )
-            },
-
-            "mother_name": {
-                "type": "STRING",
-                "description": (
-                    "Mother's name if present."
-                )
-            },
-
-            "address": {
-                "type": "STRING",
-                "description": (
-                    "Complete address appearing "
-                    "on the certificate."
-                )
-            },
-
-            "village": {
-                "type": "STRING",
-                "description": (
-                    "Village mentioned on "
-                    "the certificate."
-                )
-            },
-
-            "taluka": {
-                "type": "STRING",
-                "description": (
-                    "Taluka or tehsil mentioned."
-                )
-            },
-
-            "district": {
-                "type": "STRING",
-                "description": (
-                    "District mentioned on "
-                    "the certificate."
-                )
-            },
-
-            "state": {
-                "type": "STRING",
-                "description": (
-                    "State mentioned on "
-                    "the certificate."
-                )
-            },
-
-            "domicile_statement": {
-                "type": "STRING",
-                "description": (
-                    "Statement describing the person's "
-                    "domicile or permanent residence."
-                )
-            },
-
-            "issuing_authority": {
-                "type": "STRING",
-                "description": (
-                    "Authority or officer who issued "
-                    "the certificate."
-                )
-            }
-        },
-
-        "required": [
-            "candidate_name",
-            "certificate_number",
-            "issue_date",
-            "date_of_birth",
-            "father_name",
-            "mother_name",
-            "address",
-            "village",
-            "taluka",
-            "district",
-            "state",
-            "domicile_statement",
-            "issuing_authority"
-        ]
-    }
-
-    # --------------------------------------------------------
-    # GEMINI PROMPT
-    # --------------------------------------------------------
+    logger.info("=" * 60)
 
     prompt = f"""
-You are an expert document understanding system.
+You are an expert document data extraction system.
 
-The following text was extracted from a domicile
-certificate using Google Cloud Enterprise Document OCR.
+The following OCR text belongs to an Indian domicile certificate.
 
 Extract the following fields:
 
@@ -557,10 +206,11 @@ Extract the following fields:
 12. domicile_statement
 13. issuing_authority
 
-IMPORTANT INSTRUCTIONS:
+Instructions:
 
 - Use only information present in the OCR text.
 - Do not invent information.
+- Do not guess missing information.
 - Do not calculate anything.
 - Do not infer missing information.
 - Do not correct spelling.
@@ -568,8 +218,32 @@ IMPORTANT INSTRUCTIONS:
 - Preserve certificate number exactly as written.
 - Preserve dates exactly as written.
 - Preserve address exactly as written.
+- Preserve village, taluka, district and state exactly as written.
+- Preserve the domicile statement exactly as written.
+- Preserve the issuing authority exactly as written.
 - If a field is not present, return an empty string.
-- Return only the requested structured fields.
+- Return only valid JSON.
+- Do not return markdown.
+- Do not return explanations.
+- Do not add extra fields.
+
+Return JSON in exactly this structure:
+
+{{
+    "candidate_name": "",
+    "certificate_number": "",
+    "issue_date": "",
+    "date_of_birth": "",
+    "father_name": "",
+    "mother_name": "",
+    "address": "",
+    "village": "",
+    "taluka": "",
+    "district": "",
+    "state": "",
+    "domicile_statement": "",
+    "issuing_authority": ""
+}}
 
 OCR TEXT:
 
@@ -578,16 +252,8 @@ OCR TEXT:
 ----------------------------------------
 """
 
-    # --------------------------------------------------------
-    # GEMINI CLIENT
-    # --------------------------------------------------------
-
     logger.info(
         "Initializing Gemini Vertex AI client..."
-    )
-
-    client_start_time = (
-        time.perf_counter()
     )
 
     client = genai.Client(
@@ -599,151 +265,73 @@ OCR TEXT:
         )
     )
 
-    client_time = (
-        time.perf_counter()
-        - client_start_time
-    )
-
     logger.info(
         "Gemini client initialized"
     )
 
     logger.info(
-        f"Gemini client initialization time: "
-        f"{client_time:.3f} seconds"
-    )
-
-    # --------------------------------------------------------
-    # GEMINI 2.5 PRO API
-    # --------------------------------------------------------
-
-    logger.info(
         "Sending OCR text to Gemini 2.5 Pro..."
     )
 
-    gemini_api_start_time = (
-        time.perf_counter()
-    )
+    start_time = time.perf_counter()
 
     response = client.models.generate_content(
-
         model=GEMINI_MODEL,
-
-        contents=prompt,
-
-        config={
-
-            "response_mime_type":
-                "application/json",
-
-            "response_schema":
-                response_schema,
-
-            "temperature":
-                0
-        }
+        contents=prompt
     )
 
-    gemini_api_time = (
-        time.perf_counter()
-        - gemini_api_start_time
-    )
-
-    logger.info(
-        "Gemini API response received"
-    )
-
-    logger.info(
-        f"Gemini API time: "
-        f"{gemini_api_time:.3f} seconds"
-    )
-
-    # --------------------------------------------------------
-    # GEMINI RESULT
-    # --------------------------------------------------------
-
-    print(
-        "\nGemini extraction completed."
-    )
-
-    print(
-        "\n========== GEMINI RESULT ==========\n"
-    )
-
-    print(
-        response.text
-    )
-
-    # --------------------------------------------------------
-    # TOTAL GEMINI TIME
-    # --------------------------------------------------------
-
-    total_gemini_time = (
+    processing_time = (
         time.perf_counter()
         - start_time
     )
 
     logger.info(
-        f"TOTAL GEMINI EXTRACTION TIME: "
-        f"{total_gemini_time:.3f} seconds"
+        "Gemini 2.5 Pro completed in %.3f seconds",
+        processing_time
     )
 
-    logger.info("------------------------------------------")
-    logger.info("GEMINI 2.5 PRO EXTRACTION FINISHED")
-    logger.info("------------------------------------------")
+    print("\n")
+    print("=" * 60)
+    print("GEMINI RESULT")
+    print("=" * 60)
+    print(response.text)
+    print("=" * 60)
+
+    logger.info(
+        "GEMINI 2.5 PRO EXTRACTION FINISHED"
+    )
 
     return response.text
 
 
 # ============================================================
-# SAVE RESULT
+# SAVE JSON
 # ============================================================
 
-def save_result(
-    result
-):
+def save_result(result):
 
-    start_time = time.perf_counter()
+    logger.info("")
+    logger.info("=" * 60)
+    logger.info("SAVING DOMICILE CERTIFICATE RESULT")
+    logger.info("=" * 60)
 
-    logger.info("------------------------------------------")
-    logger.info("SAVING DOMICILE RESULT")
-    logger.info("------------------------------------------")
-
-    output_path = Path(
+    output_directory = os.path.dirname(
         OUTPUT_FILE
     )
 
-    output_path.parent.mkdir(
-        parents=True,
-        exist_ok=True
-    )
+    if output_directory:
 
-    logger.info(
-        f"Output file: {output_path}"
-    )
-
-    # --------------------------------------------------------
-    # CONVERT GEMINI JSON RESPONSE
-    # --------------------------------------------------------
-
-    logger.info(
-        "Converting Gemini response to JSON..."
-    )
+        os.makedirs(
+            output_directory,
+            exist_ok=True
+        )
 
     parsed_result = json.loads(
         result
     )
 
-    # --------------------------------------------------------
-    # WRITE JSON
-    # --------------------------------------------------------
-
-    logger.info(
-        "Writing JSON result..."
-    )
-
     with open(
-        output_path,
+        OUTPUT_FILE,
         "w",
         encoding="utf-8"
     ) as file:
@@ -755,31 +343,14 @@ def save_result(
             ensure_ascii=False
         )
 
-    # --------------------------------------------------------
-    # SAVE TIME
-    # --------------------------------------------------------
-
-    save_time = (
-        time.perf_counter()
-        - start_time
+    logger.info(
+        "JSON saved successfully"
     )
 
     logger.info(
-        "DOMICILE RESULT SAVED SUCCESSFULLY"
+        "Output file: %s",
+        os.path.abspath(OUTPUT_FILE)
     )
-
-    logger.info(
-        f"JSON SAVE TIME: "
-        f"{save_time:.3f} seconds"
-    )
-
-    logger.info(
-        f"Output file: {output_path}"
-    )
-
-    logger.info("------------------------------------------")
-    logger.info("RESULT SAVING FINISHED")
-    logger.info("------------------------------------------")
 
 
 # ============================================================
@@ -788,162 +359,105 @@ def save_result(
 
 def main():
 
-    # ========================================================
-    # TOTAL APPLICATION TIMER
-    # ========================================================
-
-    application_start_time = (
-        time.perf_counter()
-    )
+    application_start = time.perf_counter()
 
     logger.info("")
     logger.info("=" * 60)
-    logger.info(
-        "DOMICILE CERTIFICATE DATA EXTRACTION STARTED"
-    )
+    logger.info("DOMICILE CERTIFICATE DATA EXTRACTION STARTED")
     logger.info("=" * 60)
 
     logger.info(
-        f"Project       : {PROJECT_ID}"
+        "Project       : %s",
+        PROJECT_ID
     )
 
     logger.info(
-        f"Location      : {LOCATION}"
+        "Location      : %s",
+        LOCATION
     )
 
     logger.info(
-        f"Processor ID  : {PROCESSOR_ID}"
+        "Processor ID  : %s",
+        PROCESSOR_ID
     )
 
     logger.info(
-        f"Processor Ver : {PROCESSOR_VERSION}"
+        "Processor Ver : %s",
+        PROCESSOR_VERSION
     )
 
     logger.info(
-        f"Gemini Model  : {GEMINI_MODEL}"
+        "Gemini Model  : %s",
+        GEMINI_MODEL
     )
 
     logger.info(
-        f"Input         : {INPUT_FILE}"
-    )
-
-    logger.info(
-        f"Output        : {OUTPUT_FILE}"
-    )
-
-    # ========================================================
-    # STEP 1
-    # ENTERPRISE DOCUMENT OCR
-    # ========================================================
-
-    step1_start_time = (
-        time.perf_counter()
-    )
-
-    document = run_enterprise_ocr(
+        "Input         : %s",
         INPUT_FILE
     )
 
-    step1_time = (
-        time.perf_counter()
-        - step1_start_time
-    )
-
     logger.info(
-        f"STEP 1 - Enterprise OCR: "
-        f"{step1_time:.3f} seconds"
+        "Output        : %s",
+        OUTPUT_FILE
     )
 
     # ========================================================
-    # STEP 2
-    # GEMINI 2.5 PRO
+    # STEP 1 - ENTERPRISE DOCUMENT AI
     # ========================================================
 
-    step2_start_time = (
-        time.perf_counter()
+    ocr_text = run_enterprise_ocr(
+        INPUT_FILE
     )
+
+    # ========================================================
+    # STEP 2 - GEMINI 2.5 PRO
+    # ========================================================
 
     result = extract_with_gemini(
-        document
-    )
-
-    step2_time = (
-        time.perf_counter()
-        - step2_start_time
-    )
-
-    logger.info(
-        f"STEP 2 - Gemini 2.5 Pro: "
-        f"{step2_time:.3f} seconds"
+        ocr_text
     )
 
     # ========================================================
-    # STEP 3
-    # SAVE JSON
+    # STEP 3 - SAVE JSON
     # ========================================================
-
-    step3_start_time = (
-        time.perf_counter()
-    )
 
     save_result(
         result
     )
 
-    step3_time = (
+    # ========================================================
+    # FINAL OUTPUT
+    # ========================================================
+
+    print("\n")
+    print("=" * 60)
+    print("FINAL JSON OUTPUT")
+    print("=" * 60)
+
+    print(
+        json.dumps(
+            json.loads(result),
+            indent=4,
+            ensure_ascii=False
+        )
+    )
+
+    print("=" * 60)
+
+    total_time = (
         time.perf_counter()
-        - step3_start_time
+        - application_start
     )
 
     logger.info(
-        f"STEP 3 - Save JSON: "
-        f"{step3_time:.3f} seconds"
-    )
-
-    # ========================================================
-    # TOTAL EXECUTION TIME
-    # ========================================================
-
-    total_execution_time = (
-        time.perf_counter()
-        - application_start_time
-    )
-
-    # ========================================================
-    # PERFORMANCE SUMMARY
-    # ========================================================
-
-    logger.info("")
-    logger.info("=" * 60)
-    logger.info("PERFORMANCE SUMMARY")
-    logger.info("=" * 60)
-
-    logger.info(
-        f"Enterprise OCR Time : "
-        f"{step1_time:.3f} seconds"
-    )
-
-    logger.info(
-        f"Gemini 2.5 Pro Time : "
-        f"{step2_time:.3f} seconds"
-    )
-
-    logger.info(
-        f"JSON Save Time      : "
-        f"{step3_time:.3f} seconds"
-    )
-
-    logger.info(
-        f"TOTAL TIME          : "
-        f"{total_execution_time:.3f} seconds"
+        "TOTAL EXECUTION TIME: %.3f seconds",
+        total_time
     )
 
     logger.info("=" * 60)
-
     logger.info(
         "DOMICILE CERTIFICATE DATA EXTRACTION FINISHED"
     )
-
     logger.info("=" * 60)
 
 
@@ -952,15 +466,4 @@ def main():
 # ============================================================
 
 if __name__ == "__main__":
-
-    try:
-
-        main()
-
-    except Exception as error:
-
-        logger.exception(
-            f"APPLICATION FAILED: {error}"
-        )
-
-        raise
+    main()

@@ -1,7 +1,6 @@
 import json
 import logging
 import os
-import re
 import time
 
 from google.api_core.client_options import ClientOptions
@@ -9,16 +8,12 @@ from google.cloud import documentai_v1 as documentai
 from google import genai
 from google.genai.types import HttpOptions
 
-#  No change
-
 
 # ============================================================
 # GOOGLE CLOUD CONFIGURATION
 # ============================================================
 
 PROJECT_ID = "document-ai-test-506006"
-# PROJECT_ID = "document-ai-test-506006"
-
 
 LOCATION = "asia-south1"
 
@@ -44,7 +39,7 @@ OUTPUT_FILE = "output/marksheet_result.json"
 
 
 # ============================================================
-# LOGGING CONFIGURATION
+# LOGGING
 # ============================================================
 
 logging.basicConfig(
@@ -57,94 +52,26 @@ logger = logging.getLogger(__name__)
 
 
 # ============================================================
-# NORMALIZE PASSING YEAR
-# ============================================================
-
-def normalize_passing_year(value):
-
-    if not value:
-        return None
-
-    value = str(value).strip()
-
-    # Four digit year
-    if re.fullmatch(r"(19|20)\d{2}", value):
-        return value
-
-    # Two digit year
-    if re.fullmatch(r"\d{2}", value):
-
-        year = int(value)
-
-        if year <= 30:
-            return str(2000 + year)
-
-        return str(1900 + year)
-
-    # Search four digit year
-    match = re.search(
-        r"(19|20)\d{2}",
-        value
-    )
-
-    if match:
-        return match.group(0)
-
-    # Search two digit year
-    match = re.search(
-        r"\b(\d{2})\b",
-        value
-    )
-
-    if match:
-
-        year = int(match.group(1))
-
-        if year <= 30:
-            return str(2000 + year)
-
-        return str(1900 + year)
-
-    return value
-
-
-# ============================================================
 # GET MIME TYPE
 # ============================================================
 
-def get_mime_type(document_path):
+def get_mime_type(file_path):
 
-    extension = os.path.splitext(
-        document_path
-    )[1].lower()
+    extension = os.path.splitext(file_path)[1].lower()
 
-    mime_types = {
+    if extension == ".pdf":
+        return "application/pdf"
 
-        ".pdf": "application/pdf",
+    if extension in [".jpg", ".jpeg"]:
+        return "image/jpeg"
 
-        ".jpg": "image/jpeg",
+    if extension == ".png":
+        return "image/png"
 
-        ".jpeg": "image/jpeg",
+    if extension in [".tif", ".tiff"]:
+        return "image/tiff"
 
-        ".png": "image/png",
-
-        ".tif": "image/tiff",
-
-        ".tiff": "image/tiff",
-    }
-
-    mime_type = mime_types.get(
-        extension
-    )
-
-    if not mime_type:
-
-        raise ValueError(
-            f"Unsupported file format: {extension}. "
-            "Supported formats: PDF, JPG, JPEG, PNG, TIFF"
-        )
-
-    return mime_type
+    raise ValueError(f"Unsupported file format: {extension}")
 
 
 # ============================================================
@@ -153,662 +80,134 @@ def get_mime_type(document_path):
 
 def create_document_ai_client():
 
-    logger.info(
-        "Initializing Document AI client..."
-    )
-
-    start_time = time.perf_counter()
+    logger.info("Initializing Enterprise Document AI client...")
 
     client_options = ClientOptions(
-        api_endpoint=(
-            f"{LOCATION}-documentai.googleapis.com"
-        )
+        api_endpoint=f"{LOCATION}-documentai.googleapis.com"
     )
 
-    client = (
-        documentai.DocumentProcessorServiceClient(
-            client_options=client_options
-        )
+    client = documentai.DocumentProcessorServiceClient(
+        client_options=client_options
     )
 
-    logger.info(
-        "Document AI client initialized in %.3f seconds",
-        time.perf_counter() - start_time
-    )
+    logger.info("Document AI client initialized")
 
     return client
 
 
 # ============================================================
-# CREATE PROCESSOR VERSION RESOURCE NAME
+# CREATE PROCESSOR NAME
 # ============================================================
 
 def create_processor_name():
 
-    processor_name = (
-
+    return (
         f"projects/{PROJECT_ID}"
-
         f"/locations/{LOCATION}"
-
         f"/processors/{PROCESSOR_ID}"
-
         f"/processorVersions/{PROCESSOR_VERSION}"
     )
 
-    return processor_name
-
 
 # ============================================================
-# CREATE CUSTOM EXTRACTION SCHEMA
+# ENTERPRISE DOCUMENT AI OCR
 # ============================================================
 
-def create_schema_override():
+def extract_ocr_text(file_path):
 
-    field_names = [
-
-        "candidate_name",
-
-        "seat_number",
-
-        "mother_name",
-
-        "percentage",
-
-        "passing_year",
-
-        "total_marks",
-
-        "obtained_marks",
-
-        "stream"
-    ]
-
-    logger.info(
-        "Fields requested: %s",
-        ", ".join(field_names)
-    )
-
-    properties = []
-
-    for field_name in field_names:
-
-        properties.append(
-
-            documentai.DocumentSchema.EntityType.Property(
-
-                name=field_name,
-
-                value_type="string"
-            )
-        )
-
-    schema_override = documentai.DocumentSchema(
-
-        display_name="SSC Schema",
-
-        description=(
-            "10th SSC Marksheet extraction schema"
-        ),
-
-        entity_types=[
-
-            documentai.DocumentSchema.EntityType(
-
-                name="custom_extraction_document_type",
-
-                base_types=["document"],
-
-                properties=properties
-            )
-        ]
-    )
-
-    logger.info(
-        "Schema override created with %d fields",
-        len(properties)
-    )
-
-    return schema_override
-
-
-# ============================================================
-# EXTRACT DATA USING DOCUMENT AI
-# ============================================================
-
-def extract_10th_marksheet_data(
-    document_path
-):
-
-    total_start = time.perf_counter()
-
-    logger.info("")
-    logger.info(
-        "=================================================="
-    )
-
-    logger.info(
-        "STARTING 10TH MARKSHEET EXTRACTION"
-    )
-
-    logger.info(
-        "=================================================="
-    )
-
-    # ========================================================
-    # CONFIGURATION LOGS
-    # ========================================================
-
-    logger.info(
-        "Project ID: %s",
-        PROJECT_ID
-    )
-
-    logger.info(
-        "Location: %s",
-        LOCATION
-    )
-
-    logger.info(
-        "Processor ID: %s",
-        PROCESSOR_ID
-    )
-
-    logger.info(
-        "Processor Version: %s",
-        PROCESSOR_VERSION
-    )
-
-    logger.info(
-        "Document path: %s",
-        document_path
-    )
-
-    logger.info(
-        "Gemini model: %s",
-        GEMINI_MODEL
-    )
-
-    # ========================================================
-    # CHECK FILE
-    # ========================================================
-
-    if not os.path.isfile(document_path):
-
-        raise FileNotFoundError(
-
-            f"Document not found: "
-            f"{os.path.abspath(document_path)}"
-        )
-
-    logger.info(
-        "Document file found successfully"
-    )
-
-    # ========================================================
-    # GET MIME TYPE
-    # ========================================================
-
-    mime_type = get_mime_type(
-        document_path
-    )
-
-    logger.info(
-        "MIME type: %s",
-        mime_type
-    )
-
-    # ========================================================
-    # CREATE DOCUMENT AI CLIENT
-    # ========================================================
+    logger.info("Starting Enterprise Document AI OCR")
 
     client = create_document_ai_client()
 
-    # ========================================================
-    # PROCESSOR NAME
-    # ========================================================
-
     processor_name = create_processor_name()
 
-    logger.info(
-        "Processor name: %s",
-        processor_name
-    )
+    logger.info("Processor: %s", processor_name)
 
-    # ========================================================
-    # READ DOCUMENT
-    # ========================================================
+    mime_type = get_mime_type(file_path)
 
-    logger.info(
-        "Reading 10th marksheet..."
-    )
+    logger.info("MIME type: %s", mime_type)
 
-    start_time = time.perf_counter()
-
-    with open(
-        document_path,
-        "rb"
-    ) as file:
-
+    with open(file_path, "rb") as file:
         document_content = file.read()
 
     logger.info(
-        "Document read completed in %.3f seconds",
-        time.perf_counter() - start_time
-    )
-
-    logger.info(
-        "Document size: %.2f MB",
+        "Document loaded successfully: %.2f MB",
         len(document_content) / (1024 * 1024)
     )
 
-    # ========================================================
-    # CREATE RAW DOCUMENT
-    # ========================================================
-
     raw_document = documentai.RawDocument(
-
         content=document_content,
-
         mime_type=mime_type
     )
 
-    logger.info(
-        "Raw document created successfully"
-    )
-
-    # ========================================================
-    # CREATE SCHEMA
-    # ========================================================
-
-    schema_override = create_schema_override()
-
-    # ========================================================
-    # PROCESS OPTIONS
-    # ========================================================
-
-    process_options = documentai.ProcessOptions(
-
-        schema_override=schema_override
-    )
-
-    logger.info(
-        "Document AI process options created"
-    )
-
-    # ========================================================
-    # CREATE REQUEST
-    # ========================================================
-
     request = documentai.ProcessRequest(
-
         name=processor_name,
-
-        raw_document=raw_document,
-
-        process_options=process_options
+        raw_document=raw_document
     )
 
-    logger.info(
-        "Document AI request created successfully"
-    )
+    logger.info("Sending document to Enterprise Document AI...")
 
-    # ========================================================
-    # PROCESS DOCUMENT
-    # ========================================================
-
-    logger.info("")
-    logger.info(
-        "=================================================="
-    )
-
-    logger.info(
-        "SENDING 10TH MARKSHEET TO DOCUMENT AI"
-    )
-
-    logger.info(
-        "CUSTOM EXTRACTOR PROCESSING STARTED"
-    )
-
-    logger.info(
-        "=================================================="
-    )
-
-    processing_start = time.perf_counter()
+    start_time = time.perf_counter()
 
     result = client.process_document(
         request=request
     )
 
-    processing_time = (
-        time.perf_counter()
-        - processing_start
-    )
+    processing_time = time.perf_counter() - start_time
 
     logger.info(
-        "Document AI processing completed in %.3f seconds",
+        "Enterprise Document AI completed in %.3f seconds",
         processing_time
     )
 
-    document = result.document
-
-    # ========================================================
-    # OCR TEXT
-    # ========================================================
+    ocr_text = result.document.text
 
     logger.info(
-        "Reading OCR text..."
-    )
-
-    ocr_text = document.text
-
-    logger.info(
-        "OCR characters extracted: %d",
+        "OCR text extracted: %d characters",
         len(ocr_text)
     )
 
-    print(
-        "\n================ OCR TEXT ================\n"
-    )
-
-    print(
-        ocr_text
-    )
-
-    print(
-        "\n===========================================\n"
-    )
-
-    # ========================================================
-    # INITIAL RESULT
-    # ========================================================
-
-    extracted_data = {
-
-        "candidate_name": None,
-
-        "seat_number": None,
-
-        "mother_name": None,
-
-        "percentage": None,
-
-        "passing_year": None,
-
-        "total_marks": None,
-
-        "obtained_marks": None,
-
-        "stream": None
-    }
-
-    # ========================================================
-    # EXTRACT DOCUMENT AI ENTITIES
-    # ========================================================
-
-    logger.info(
-        "Extracting Custom Extractor entities..."
-    )
-
-    entity_start = time.perf_counter()
-
-    total_entities = 0
-
-    matched_entities = 0
-
-    for entity in document.entities:
-
-        total_entities += 1
-
-        field_name = entity.type_
-
-        value = entity.mention_text
-
-        confidence = entity.confidence
-
-        logger.info(
-            "Entity: %s | Value: %s | Confidence: %.4f",
-            field_name,
-            value,
-            confidence
-        )
-
-        if field_name in extracted_data:
-
-            if value:
-
-                extracted_data[field_name] = (
-                    value.strip()
-                )
-
-            matched_entities += 1
-
-    entity_time = (
-        time.perf_counter()
-        - entity_start
-    )
-
-    # ========================================================
-    # NORMALIZE PASSING YEAR
-    # ========================================================
-
-    if extracted_data["passing_year"]:
-
-        original_year = (
-            extracted_data["passing_year"]
-        )
-
-        extracted_data["passing_year"] = (
-            normalize_passing_year(
-                original_year
-            )
-        )
-
-        logger.info(
-            "Passing year normalized: %s -> %s",
-            original_year,
-            extracted_data["passing_year"]
-        )
-
-    # ========================================================
-    # ENTITY STATISTICS
-    # ========================================================
-
-    logger.info(
-        "Entity extraction completed in %.3f seconds",
-        entity_time
-    )
-
-    logger.info(
-        "Total entities detected: %d",
-        total_entities
-    )
-
-    logger.info(
-        "Required entities matched: %d / %d",
-        matched_entities,
-        len(extracted_data)
-    )
-
-    # ========================================================
-    # DOCUMENT AI RESULT
-    # ========================================================
-
-    print(
-        "\n================ DOCUMENT AI RESULT ================\n"
-    )
-
-    print(
-        json.dumps(
-            extracted_data,
-            indent=4,
-            ensure_ascii=False
-        )
-    )
-
-    print(
-        "\n=====================================================\n"
-    )
-
-    total_time = (
-        time.perf_counter()
-        - total_start
-    )
-
-    logger.info(
-        "Document AI processing time: %.3f seconds",
-        processing_time
-    )
-
-    logger.info(
-        "Entity extraction time: %.3f seconds",
-        entity_time
-    )
-
-    logger.info(
-        "TOTAL DOCUMENT AI TIME: %.3f seconds",
-        total_time
-    )
-
-    return extracted_data, ocr_text
+    return ocr_text
 
 
 # ============================================================
-# GEMINI EXTRACTION
+# GEMINI 2.5 PRO EXTRACTION
 # ============================================================
 
-def extract_with_gemini(
-    project_id,
-    ocr_text,
-    document_ai_result
-):
+def extract_with_gemini(ocr_text):
 
-    logger.info("")
-    logger.info(
-        "=================================================="
-    )
-
-    logger.info(
-        "STARTING GEMINI 2.5 PRO EXTRACTION"
-    )
-
-    logger.info(
-        "=================================================="
-    )
-
-    start_time = time.perf_counter()
-
-    # ========================================================
-    # RESPONSE SCHEMA
-    # ========================================================
-
-    response_schema = {
-
-        "type": "OBJECT",
-
-        "properties": {
-
-            "candidate_name": {
-
-                "type": "STRING"
-            },
-
-            "seat_number": {
-
-                "type": "STRING"
-            },
-
-            "mother_name": {
-
-                "type": "STRING"
-            },
-
-            "percentage": {
-
-                "type": "STRING"
-            },
-
-            "passing_year": {
-
-                "type": "STRING"
-            },
-
-            "total_marks": {
-
-                "type": "STRING"
-            },
-
-            "obtained_marks": {
-
-                "type": "STRING"
-            },
-
-            "stream": {
-
-                "type": "STRING"
-            }
-        },
-
-        "required": [
-
-            "candidate_name",
-
-            "seat_number",
-
-            "mother_name",
-
-            "percentage",
-
-            "passing_year",
-
-            "total_marks",
-
-            "obtained_marks",
-
-            "stream"
-        ]
-    }
-
-    # ========================================================
-    # PROMPT
-    # ========================================================
+    logger.info("Starting Gemini 2.5 Pro extraction")
 
     prompt = f"""
 You are a document data extraction system.
 
-You are processing a 10th standard SSC marksheet.
+The following OCR text belongs to a 10th standard SSC marksheet.
 
-Document AI has already processed the document.
+Extract the marksheet information and return the result as JSON.
 
-Extract the following fields:
+Extract these fields:
 
-1. candidate_name
-2. seat_number
-3. mother_name
-4. percentage
-5. passing_year
-6. total_marks
-7. obtained_marks
-8. stream
+- candidate_name
+- seat_number
+- mother_name
+- percentage
+- passing_year
+- total_marks
+- obtained_marks
+- stream
 
 Rules:
 
-- Use only information present in the OCR text or
-  Document AI extracted data.
-- Do not invent values.
-- Do not guess missing information.
-- Do not change the spelling of names.
-- Preserve values as written.
-- If a value cannot be identified, return an empty string.
-- Return only valid JSON.
-
-DOCUMENT AI EXTRACTED DATA:
-
-{json.dumps(
-    document_ai_result,
-    indent=4,
-    ensure_ascii=False
-)}
+1. Use only information available in the OCR text.
+2. Do not invent information.
+3. Do not guess missing information.
+4. Preserve names exactly as they appear.
+5. Preserve values exactly as they appear.
+6. If a field is not available, return an empty string.
+7. Return only JSON.
+8. Do not add explanations.
+9. Do not add markdown.
+10. Do not add extra fields.
 
 OCR TEXT:
 
@@ -817,112 +216,38 @@ OCR TEXT:
 ------------------------------
 """
 
-    # ========================================================
-    # CREATE GEMINI CLIENT
-    # ========================================================
-
-    logger.info(
-        "Initializing Gemini Vertex AI client..."
-    )
+    logger.info("Initializing Gemini Vertex AI client...")
 
     client = genai.Client(
-
         vertexai=True,
-
-        project=project_id,
-
+        project=PROJECT_ID,
         location="global",
-
         http_options=HttpOptions(
             api_version="v1"
         )
     )
 
-    logger.info(
-        "Gemini client initialized successfully"
-    )
+    logger.info("Gemini client initialized")
 
-    # ========================================================
-    # GEMINI REQUEST
-    # ========================================================
+    logger.info("Sending OCR text to Gemini 2.5 Pro...")
 
-    logger.info(
-        "Sending data to Gemini 2.5 Pro..."
-    )
-
-    gemini_start = time.perf_counter()
+    start_time = time.perf_counter()
 
     response = client.models.generate_content(
-
         model=GEMINI_MODEL,
-
-        contents=prompt,
-
-        config={
-
-            "response_mime_type": "application/json",
-
-            "response_schema": response_schema,
-
-            "temperature": 0
-        }
+        contents=prompt
     )
 
-    gemini_time = (
-        time.perf_counter()
-        - gemini_start
-    )
+    processing_time = time.perf_counter() - start_time
 
     logger.info(
-        "Gemini response received in %.3f seconds",
-        gemini_time
+        "Gemini completed in %.3f seconds",
+        processing_time
     )
 
-    # ========================================================
-    # PARSE JSON
-    # ========================================================
+    result = json.loads(response.text)
 
-    try:
-
-        result = json.loads(
-            response.text
-        )
-
-    except json.JSONDecodeError as error:
-
-        logger.error(
-            "Gemini returned invalid JSON: %s",
-            error
-        )
-
-        raise ValueError(
-            "Gemini did not return valid JSON"
-        ) from error
-
-    # ========================================================
-    # PRINT GEMINI JSON
-    # ========================================================
-
-    print(
-        "\n================ GEMINI RESULT ================\n"
-    )
-
-    print(
-        json.dumps(
-            result,
-            indent=4,
-            ensure_ascii=False
-        )
-    )
-
-    print(
-        "\n================================================\n"
-    )
-
-    logger.info(
-        "Gemini extraction completed in %.3f seconds",
-        time.perf_counter() - start_time
-    )
+    logger.info("Gemini JSON extraction completed")
 
     return result
 
@@ -933,20 +258,10 @@ OCR TEXT:
 
 def save_json(result):
 
-    logger.info(
-        "Saving final JSON..."
+    os.makedirs(
+        os.path.dirname(OUTPUT_FILE),
+        exist_ok=True
     )
-
-    output_directory = os.path.dirname(
-        OUTPUT_FILE
-    )
-
-    if output_directory:
-
-        os.makedirs(
-            output_directory,
-            exist_ok=True
-        )
 
     with open(
         OUTPUT_FILE,
@@ -962,11 +277,7 @@ def save_json(result):
         )
 
     logger.info(
-        "JSON saved successfully"
-    )
-
-    logger.info(
-        "Output file: %s",
+        "JSON saved to: %s",
         os.path.abspath(OUTPUT_FILE)
     )
 
@@ -977,222 +288,85 @@ def save_json(result):
 
 def main():
 
-    application_start = time.perf_counter()
+    logger.info("")
+    logger.info("=" * 60)
+    logger.info("10TH MARKSHEET EXTRACTION STARTED")
+    logger.info("=" * 60)
+
+    logger.info("Project ID: %s", PROJECT_ID)
+    logger.info("Location: %s", LOCATION)
+    logger.info("Processor ID: %s", PROCESSOR_ID)
+    logger.info("Processor Version: %s", PROCESSOR_VERSION)
+    logger.info("Gemini Model: %s", GEMINI_MODEL)
+    logger.info("Input File: %s", DOCUMENT_PATH)
+
+    # ========================================================
+    # STEP 1 - ENTERPRISE DOCUMENT AI
+    # ========================================================
 
     logger.info("")
-    logger.info(
-        "============================================================"
+    logger.info("=" * 60)
+    logger.info("STEP 1 - ENTERPRISE DOCUMENT AI")
+    logger.info("=" * 60)
+
+    ocr_text = extract_ocr_text(
+        DOCUMENT_PATH
     )
 
-    logger.info(
-        "10TH MARKSHEET DATA EXTRACTION STARTED"
+    print("\n")
+    print("=" * 60)
+    print("OCR TEXT")
+    print("=" * 60)
+    print(ocr_text)
+    print("=" * 60)
+
+    # ========================================================
+    # STEP 2 - GEMINI 2.5 PRO
+    # ========================================================
+
+    logger.info("")
+    logger.info("=" * 60)
+    logger.info("STEP 2 - GEMINI 2.5 PRO")
+    logger.info("=" * 60)
+
+    result = extract_with_gemini(
+        ocr_text
     )
 
-    logger.info(
-        "============================================================"
+    # ========================================================
+    # STEP 3 - SAVE JSON
+    # ========================================================
+
+    logger.info("")
+    logger.info("=" * 60)
+    logger.info("STEP 3 - SAVE JSON")
+    logger.info("=" * 60)
+
+    save_json(result)
+
+    # ========================================================
+    # FINAL OUTPUT
+    # ========================================================
+
+    print("\n")
+    print("=" * 60)
+    print("FINAL JSON OUTPUT")
+    print("=" * 60)
+
+    print(
+        json.dumps(
+            result,
+            indent=4,
+            ensure_ascii=False
+        )
     )
 
-    try:
+    print("=" * 60)
 
-        # ====================================================
-        # DISPLAY CONFIGURATION
-        # ====================================================
-
-        logger.info(
-            "Project       : %s",
-            PROJECT_ID
-        )
-
-        logger.info(
-            "Location      : %s",
-            LOCATION
-        )
-
-        logger.info(
-            "Processor ID  : %s",
-            PROCESSOR_ID
-        )
-
-        logger.info(
-            "Processor Ver : %s",
-            PROCESSOR_VERSION
-        )
-
-        logger.info(
-            "Gemini Model  : %s",
-            GEMINI_MODEL
-        )
-
-        logger.info(
-            "Input         : %s",
-            DOCUMENT_PATH
-        )
-
-        logger.info(
-            "Output        : %s",
-            OUTPUT_FILE
-        )
-
-        # ====================================================
-        # STEP 1 - DOCUMENT AI
-        # ====================================================
-
-        logger.info("")
-        logger.info(
-            "============================================================"
-        )
-
-        logger.info(
-            "STEP 1 - DOCUMENT AI CUSTOM EXTRACTOR"
-        )
-
-        logger.info(
-            "============================================================"
-        )
-
-        document_ai_result, ocr_text = (
-            extract_10th_marksheet_data(
-                DOCUMENT_PATH
-            )
-        )
-
-        # ====================================================
-        # STEP 2 - GEMINI
-        # ====================================================
-
-        logger.info("")
-        logger.info(
-            "============================================================"
-        )
-
-        logger.info(
-            "STEP 2 - GEMINI 2.5 PRO"
-        )
-
-        logger.info(
-            "============================================================"
-        )
-
-        final_result = extract_with_gemini(
-
-            PROJECT_ID,
-
-            ocr_text,
-
-            document_ai_result
-        )
-
-        # ====================================================
-        # STEP 3 - SAVE JSON
-        # ====================================================
-
-        logger.info("")
-        logger.info(
-            "============================================================"
-        )
-
-        logger.info(
-            "STEP 3 - SAVE JSON"
-        )
-
-        logger.info(
-            "============================================================"
-        )
-
-        save_json(
-            final_result
-        )
-
-        # ====================================================
-        # STEP 4 - FINAL OUTPUT
-        # ====================================================
-
-        print(
-            "\n"
-            + "=" * 60
-        )
-
-        print(
-            "FINAL JSON OUTPUT"
-        )
-
-        print(
-            "=" * 60
-        )
-
-        print(
-            json.dumps(
-                final_result,
-                indent=4,
-                ensure_ascii=False
-            )
-        )
-
-        print(
-            "=" * 60
-        )
-
-        print(
-            "JSON FILE:"
-        )
-
-        print(
-            os.path.abspath(
-                OUTPUT_FILE
-            )
-        )
-
-        print(
-            "=" * 60
-        )
-
-        # ====================================================
-        # PERFORMANCE
-        # ====================================================
-
-        total_time = (
-            time.perf_counter()
-            - application_start
-        )
-
-        logger.info("")
-        logger.info(
-            "============================================================"
-        )
-
-        logger.info(
-            "PERFORMANCE SUMMARY"
-        )
-
-        logger.info(
-            "============================================================"
-        )
-
-        logger.info(
-            "TOTAL EXECUTION TIME: %.3f seconds",
-            total_time
-        )
-
-        logger.info(
-            "============================================================"
-        )
-
-        logger.info(
-            "10TH MARKSHEET DATA EXTRACTION FINISHED"
-        )
-
-        logger.info(
-            "============================================================"
-        )
-
-    except Exception as error:
-
-        logger.exception(
-            "10th marksheet extraction failed: %s",
-            error
-        )
-
-        raise
+    logger.info("")
+    logger.info("=" * 60)
+    logger.info("10TH MARKSHEET EXTRACTION FINISHED")
+    logger.info("=" * 60)
 
 
 # ============================================================
@@ -1200,5 +374,4 @@ def main():
 # ============================================================
 
 if __name__ == "__main__":
-
     main()
